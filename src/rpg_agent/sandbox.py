@@ -32,9 +32,12 @@ logger = logging.getLogger(__name__)
 
 import math
 import random
+import json 
+
+ALLOWED_MODULES = {"math", "time", "json"}
 
 def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
-    if name in ("math", "random"):
+    if name in ALLOWED_MODULES:
         return __import__(name, globals, locals, fromlist, level)
     raise ImportError(f"Import of module '{name}' is not allowed in this sandbox.")
 
@@ -93,6 +96,7 @@ _SAFE_GLOBALS: dict[str, Any] = {
     "__builtins__": _SAFE_BUILTINS,
     "math": math,
     "random": random,
+    "json": json,
 }
 
 
