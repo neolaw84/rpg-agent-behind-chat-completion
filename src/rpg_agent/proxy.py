@@ -44,17 +44,36 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Config
+# Config & Paths
 # ---------------------------------------------------------------------------
 
-_REPO_ROOT = Path(__file__).parent.parent.parent
-_CONFIG_PATH = _REPO_ROOT / "configs.yaml"
+# Resolve the config file path dynamically
+_config_env = os.environ.get("RPG_AGENT_CONFIG_PATH")
+if _config_env:
+    _CONFIG_PATH = Path(_config_env).resolve()
+else:
+    _cwd_config = Path("configs.yaml").resolve()
+    if _cwd_config.exists():
+        _CONFIG_PATH = _cwd_config
+    else:
+        _package_config = (Path(__file__).parent.parent.parent / "configs.yaml").resolve()
+        if _package_config.exists():
+            _CONFIG_PATH = _package_config
+        else:
+            _CONFIG_PATH = Path.cwd() / "configs.yaml"
+
+# Base directory for relative config paths (defaults to CWD if config doesn't exist)
+_BASE_DIR = _CONFIG_PATH.parent if _CONFIG_PATH.exists() else Path.cwd()
 
 def _load_config() -> dict[str, Any]:
     if _CONFIG_PATH.exists():
-        with _CONFIG_PATH.open(encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    logger.warning("configs.yaml not found at %s — using defaults.", _CONFIG_PATH)
+        try:
+            with _CONFIG_PATH.open(encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception as e:
+            logger.error("Failed to load configs.yaml at %s: %s", _CONFIG_PATH, e)
+    else:
+        logger.warning("configs.yaml not found at %s — using defaults.", _CONFIG_PATH)
     return {}
 
 _cfg = _load_config()
@@ -63,17 +82,27 @@ _sandbox_cfg   = _cfg.get("sandbox", {})
 _langgraph_cfg = _cfg.get("langgraph", {})
 
 NUM_STATES_TO_TRACK: int   = int(_state_cfg.get("num_states_to_track", 8))
-STATE_STORAGE_DIR: Path    = _REPO_ROOT / _state_cfg.get("storage_dir", "data/states")
+
+# Resolve STATE_STORAGE_DIR
+_env_state_dir = os.environ.get("RPG_AGENT_STATE_DIR")
+if _env_state_dir:
+    STATE_STORAGE_DIR: Path = Path(_env_state_dir).resolve()
+else:
+    _storage_dir_str = _state_cfg.get("storage_dir", "data/states")
+    _p = Path(_storage_dir_str)
+    STATE_STORAGE_DIR = _p if _p.is_absolute() else (_BASE_DIR / _p).resolve()
+
 SANDBOX_TIMEOUT: float     = float(_sandbox_cfg.get("timeout_seconds", 2.0))
 MAX_ITERATIONS: int        = int(_langgraph_cfg.get("max_iterations", 5))
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-# Payload log
-PAYLOAD_LOG_PATH = _REPO_ROOT / "data" / "example-janitorai-payload.md"
-
-# Proxy key
-_KEY_FILE = _REPO_ROOT / "proxy.key"
+# Resolve _KEY_FILE
+_env_key_file = os.environ.get("RPG_AGENT_KEY_FILE")
+if _env_key_file:
+    _KEY_FILE = Path(_env_key_file).resolve()
+else:
+    _KEY_FILE = (_BASE_DIR / "proxy.key").resolve()
 
 # Pattern to extract turn_key from a proxy-annotated assistant message.
 _TURN_KEY_RE = re.compile(r"\[proxy:.*?turn=([a-f0-9]{24})", re.IGNORECASE)
@@ -84,11 +113,16 @@ _TURN_KEY_RE = re.compile(r"\[proxy:.*?turn=([a-f0-9]{24})", re.IGNORECASE)
 # ---------------------------------------------------------------------------
 
 def _load_or_generate_proxy_key() -> str:
+    env_key = os.environ.get("RPG_AGENT_PROXY_KEY")
+    if env_key:
+        return env_key.strip()
+
     if _KEY_FILE.exists():
         key = _KEY_FILE.read_text(encoding="utf-8").strip()
         if key:
             return key
     key = secrets.token_urlsafe(32)
+    _KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
     _KEY_FILE.write_text(key + "\n", encoding="utf-8")
     return key
 
@@ -197,12 +231,8 @@ def _log_request(
     turn_key: str,
     prev_turn_key: str | None,
 ) -> None:
-    """Append request metadata and body to the payload log file."""
+    """Log request metadata and body at debug level."""
     import json
-    from datetime import datetime, timezone
-
-    PAYLOAD_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(tz=timezone.utc).isoformat()
 
     meta = {
         "method": request.method,
@@ -221,25 +251,14 @@ def _log_request(
     if "authorization" in headers_dict:
         headers_dict["authorization"] = "Bearer <REDACTED>"
 
-    entry = (
-        f"\n---\n\n"
-        f"## Request captured at {timestamp}\n\n"
-        f"**Session**: `{session_id}` _(resolved via {session_method})_\n"
-        f"**Turn key**: `{turn_key}` | **Prev turn key**: `{prev_turn_key}`\n\n"
-        f"### Metadata\n\n"
-        f"```json\n{json.dumps(meta, indent=2, ensure_ascii=False)}\n```\n\n"
-        f"### Headers\n\n"
-        f"```json\n{json.dumps(headers_dict, indent=2, ensure_ascii=False)}\n```\n\n"
-        f"### Body\n\n"
-        f"```json\n{json.dumps(payload, indent=2, ensure_ascii=False)}\n```\n"
-    )
-
-    with PAYLOAD_LOG_PATH.open("a", encoding="utf-8") as f:
-        f.write(entry)
-
-    logger.info(
-        "Logged request [session=%s turn=%s prev=%s]",
-        session_id, turn_key, prev_turn_key,
+    logger.debug(
+        "Incoming Request: session_id=%s turn_key=%s prev_turn_key=%s. Meta: %s | Headers: %s | Payload: %s",
+        session_id,
+        turn_key,
+        prev_turn_key,
+        json.dumps(meta, ensure_ascii=False),
+        json.dumps(headers_dict, ensure_ascii=False),
+        json.dumps(payload, ensure_ascii=False),
     )
 
 
@@ -492,3 +511,35 @@ async def delete_session(session_id: str) -> dict[str, str]:
 async def health() -> dict[str, str]:
     """Simple health check endpoint."""
     return {"status": "ok"}
+
+
+def main():
+    import argparse
+    import uvicorn
+    import os
+
+    default_port = int(os.environ.get("PORT", 8000))
+
+    parser = argparse.ArgumentParser(description="RPG Agent Chat Completion Proxy")
+    parser.add_argument("--host", default="0.0.0.0", help="Binding host")
+    parser.add_argument("--port", type=int, default=default_port, help="Binding port")
+    parser.add_argument("--config", help="Path to configs.yaml")
+    parser.add_argument("--state-dir", help="Directory where per-session state files are saved")
+    parser.add_argument("--key-file", help="Path to the proxy API key file")
+    parser.add_argument("--reload", action="store_true", help="Enable uvicorn reload")
+
+    args = parser.parse_args()
+
+    # Pass configurations to module via environment variables before running uvicorn
+    if args.config:
+        os.environ["RPG_AGENT_CONFIG_PATH"] = args.config
+    if args.state_dir:
+        os.environ["RPG_AGENT_STATE_DIR"] = args.state_dir
+    if args.key_file:
+        os.environ["RPG_AGENT_KEY_FILE"] = args.key_file
+
+    uvicorn.run("rpg_agent.proxy:app", host=args.host, port=args.port, reload=args.reload)
+
+
+if __name__ == "__main__":
+    main()

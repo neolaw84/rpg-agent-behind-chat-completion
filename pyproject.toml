@@ -32,5 +32,8 @@ dev = [
     "mypy>=1.9.0",
 ]
 
+[project.scripts]
+rpg-agent-proxy = "rpg_agent.proxy:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/rpg_agent"]
