@@ -3,7 +3,7 @@
 
 state:
   # Number of recent turns to retain in the FIFO session store.
-  num_states_to_track: 8
+  num_states_to_track: 128
   # Directory where per-session JSON files are written (gitignored).
   storage_dir: "data/states"
 
