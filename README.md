@@ -23,7 +23,7 @@ You can deploy your own instance of the RPG Agent proxy to the cloud instantly w
 
 Click the button below to duplicate the template Space to your Hugging Face account:
 
-[![Deploy to Hugging Face](https://huggingface.co/datasets/huggingface/badges/resolve/main/deploy-to-spaces-lg.svg)](https://huggingface.co/spaces/YOUR_USERNAME/YOUR_SPACE_NAME?duplicate=true)
+[![Deploy to Hugging Face](https://huggingface.co/datasets/huggingface/badges/resolve/main/deploy-to-spaces-lg.svg)](https://huggingface.co/spaces/edward-law/rab-cc?duplicate=true)
 
 *Note: In the Space settings, make sure to set `OPENROUTER_API_KEY` under **Repository Secrets**. You can read the auto-generated proxy API key from the **Logs** tab, or supply a custom one by adding a secret named `RPG_AGENT_PROXY_KEY`.*
 
