@@ -1,3 +1,13 @@
+---
+title: RPG Agent Behind Chat Completion
+emoji: 🎲
+colorFrom: red
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # RPG Agent Behind Chat Completion
 
 A FastAPI proxy that sits between JanitorAI (or any OpenAI-compatible client) and [OpenRouter](https://openrouter.ai/), running request payloads through a stateful LangGraph agent with a secure Python code sandbox and dice rolling tools.
