@@ -9,7 +9,7 @@ state:
 
 sandbox:
   # Wall-clock timeout (seconds) for each code execution inside the sandbox.
-  timeout_seconds: 2.0
+  timeout_seconds: 12.0
 
 langgraph:
   # Maximum LLM ↔ Tool round-trips per request before the graph is forced

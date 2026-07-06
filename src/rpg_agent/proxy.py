@@ -1,19 +1,8 @@
 """OpenRouter Chat Completion Proxy.
 
 Receives chat completion payloads from JanitorAI, resolves the session and
-turn key, loads/validates the FIFO session state, runs the LangGraph agent
-(LLM + code sandbox + dice tools), persists the updated state, and returns
-the final assistant message to the client with a proxy metadata annotation
-prepended to the message text.
-
-Endpoints
----------
-POST /v1/chat/completions
-POST /v1/{session_id}/chat/completions  — explicit session override
-GET  /v1/sessions                       — list active sessions
-POST /v1/sessions/{session_id}/reset    — clear a session's state
-DELETE /v1/sessions/{session_id}        — delete a session from disk
-GET  /health
+turn key, loads/validates the FIFO session state, runs the LangGraph agent,
+persists the updated state, and returns the final assistant message.
 """
 
 from __future__ import annotations
@@ -22,112 +11,29 @@ import asyncio
 import logging
 import os
 import re
-import secrets
 from contextlib import asynccontextmanager
-from pathlib import Path
-from typing import Any
-
-import yaml
-from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from rpg_agent.config import (
+    NUM_STATES_TO_TRACK,
+    STATE_STORAGE_DIR,
+    SANDBOX_TIMEOUT,
+    MAX_ITERATIONS,
+    OPENROUTER_BASE_URL,
+)
+from rpg_agent.auth import PROXY_API_KEY, require_proxy_key
+from rpg_agent.routes.sessions import router as sessions_router
 from rpg_agent.graph import run_agent
 from rpg_agent.session import compute_turn_key, resolve_session_id
 from rpg_agent.state import SessionStateStore
 
-load_dotenv()
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Config & Paths
-# ---------------------------------------------------------------------------
-
-# Resolve the config file path dynamically
-_config_env = os.environ.get("RPG_AGENT_CONFIG_PATH")
-if _config_env:
-    _CONFIG_PATH = Path(_config_env).resolve()
-else:
-    _cwd_config = Path("configs.yaml").resolve()
-    if _cwd_config.exists():
-        _CONFIG_PATH = _cwd_config
-    else:
-        _package_config = (Path(__file__).parent.parent.parent / "configs.yaml").resolve()
-        if _package_config.exists():
-            _CONFIG_PATH = _package_config
-        else:
-            _CONFIG_PATH = Path.cwd() / "configs.yaml"
-
-# Base directory for relative config paths (defaults to CWD if config doesn't exist)
-_BASE_DIR = _CONFIG_PATH.parent if _CONFIG_PATH.exists() else Path.cwd()
-
-def _load_config() -> dict[str, Any]:
-    if _CONFIG_PATH.exists():
-        try:
-            with _CONFIG_PATH.open(encoding="utf-8") as f:
-                return yaml.safe_load(f) or {}
-        except Exception as e:
-            logger.error("Failed to load configs.yaml at %s: %s", _CONFIG_PATH, e)
-    else:
-        logger.warning("configs.yaml not found at %s — using defaults.", _CONFIG_PATH)
-    return {}
-
-_cfg = _load_config()
-_state_cfg     = _cfg.get("state", {})
-_sandbox_cfg   = _cfg.get("sandbox", {})
-_langgraph_cfg = _cfg.get("langgraph", {})
-
-NUM_STATES_TO_TRACK: int   = int(_state_cfg.get("num_states_to_track", 8))
-
-# Resolve STATE_STORAGE_DIR
-_env_state_dir = os.environ.get("RPG_AGENT_STATE_DIR")
-if _env_state_dir:
-    STATE_STORAGE_DIR: Path = Path(_env_state_dir).resolve()
-else:
-    _storage_dir_str = _state_cfg.get("storage_dir", "data/states")
-    _p = Path(_storage_dir_str)
-    STATE_STORAGE_DIR = _p if _p.is_absolute() else (_BASE_DIR / _p).resolve()
-
-SANDBOX_TIMEOUT: float     = float(_sandbox_cfg.get("timeout_seconds", 2.0))
-MAX_ITERATIONS: int        = int(_langgraph_cfg.get("max_iterations", 5))
-
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-
-# Resolve _KEY_FILE
-_env_key_file = os.environ.get("RPG_AGENT_KEY_FILE")
-if _env_key_file:
-    _KEY_FILE = Path(_env_key_file).resolve()
-else:
-    _KEY_FILE = (_BASE_DIR / "proxy.key").resolve()
-
 # Pattern to extract turn_key from a proxy-annotated assistant message.
 _TURN_KEY_RE = re.compile(r"\[proxy:.*?turn=([a-f0-9]{24})", re.IGNORECASE)
-
-
-# ---------------------------------------------------------------------------
-# Proxy API key
-# ---------------------------------------------------------------------------
-
-def _load_or_generate_proxy_key() -> str:
-    env_key = os.environ.get("RPG_AGENT_PROXY_KEY")
-    if env_key:
-        return env_key.strip()
-
-    if _KEY_FILE.exists():
-        key = _KEY_FILE.read_text(encoding="utf-8").strip()
-        if key:
-            return key
-    key = secrets.token_urlsafe(32)
-    _KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _KEY_FILE.write_text(key + "\n", encoding="utf-8")
-    return key
-
-PROXY_API_KEY: str = _load_or_generate_proxy_key()
-_bearer_scheme = HTTPBearer(auto_error=False)
 
 
 # ---------------------------------------------------------------------------
@@ -171,22 +77,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# ---------------------------------------------------------------------------
-# Auth dependency
-# ---------------------------------------------------------------------------
-
-async def _require_proxy_key(
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
-) -> None:
-    if credentials is None or not secrets.compare_digest(
-        credentials.credentials, PROXY_API_KEY
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing proxy API key.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+# Include refactored session CRUD router
+app.include_router(sessions_router)
 
 
 # ---------------------------------------------------------------------------
@@ -209,9 +101,6 @@ def _get_api_key() -> str:
 def _extract_prev_turn_key(messages: list[dict]) -> str | None:
     """Scan the messages list (newest first) for the last assistant message
     that carries a ``[proxy: ... turn=<key>]`` annotation.
-
-    Returns the turn key string, or None if no annotated assistant message is
-    found (which is the expected case on the first turn).
     """
     for msg in reversed(messages):
         if msg.get("role") != "assistant":
@@ -266,25 +155,13 @@ def _log_request(
 # Chat completion endpoint
 # ---------------------------------------------------------------------------
 
-@app.post("/v1/chat/completions", dependencies=[Depends(_require_proxy_key)])
-@app.post("/v1/{session_id}/chat/completions", dependencies=[Depends(_require_proxy_key)])
+@app.post("/v1/chat/completions", dependencies=[Depends(require_proxy_key)])
+@app.post("/v1/{session_id}/chat/completions", dependencies=[Depends(require_proxy_key)])
 async def proxy_chat_completions(
     request: Request,
     session_id: str | None = None,
 ) -> Any:
-    """Proxy a chat completion request through the LangGraph RPG agent.
-
-    Session ID resolution (highest → lowest priority):
-      1. URL path segment ``/v1/{session_id}/chat/completions``
-      2. Query parameter ``?session_id=…``
-      3. ``[session: name]`` OOC tag inside any message (newest first)
-      4. MD5 suffix hash of system prompt + username from last user message
-
-    State rehydration:
-      - <= 2 messages → first turn, before_state = {}
-      - > 2 messages  → extract prev_turn_key from last assistant message;
-                        raise HTTP 400 if not found in the session store
-    """
+    """Proxy a chat completion request through the LangGraph RPG agent."""
     api_key = _get_api_key()
 
     explicit_sid = session_id or request.query_params.get("session_id")
@@ -463,60 +340,18 @@ async def proxy_chat_completions(
 
 
 # ---------------------------------------------------------------------------
-# Session CRUD endpoints
-# ---------------------------------------------------------------------------
-
-@app.get("/v1/sessions", dependencies=[Depends(_require_proxy_key)])
-async def list_sessions() -> dict[str, Any]:
-    """List all active session IDs stored on disk."""
-    sessions = SessionStateStore.list_sessions(STATE_STORAGE_DIR)
-    return {"sessions": sessions, "count": len(sessions)}
-
-
-@app.post(
-    "/v1/sessions/{session_id}/reset",
-    dependencies=[Depends(_require_proxy_key)],
-)
-async def reset_session(session_id: str) -> dict[str, str]:
-    """Clear the FIFO state history for a session (keeps the session ID)."""
-    store = SessionStateStore(
-        session_id=session_id,
-        storage_dir=STATE_STORAGE_DIR,
-        max_size=NUM_STATES_TO_TRACK,
-    )
-    store.reset()
-    return {"status": "reset", "session_id": session_id}
-
-
-@app.delete(
-    "/v1/sessions/{session_id}",
-    dependencies=[Depends(_require_proxy_key)],
-)
-async def delete_session(session_id: str) -> dict[str, str]:
-    """Delete a session's state file from disk entirely."""
-    store = SessionStateStore(
-        session_id=session_id,
-        storage_dir=STATE_STORAGE_DIR,
-        max_size=NUM_STATES_TO_TRACK,
-    )
-    store.delete()
-    return {"status": "deleted", "session_id": session_id}
-
-
-# ---------------------------------------------------------------------------
-# Health check
+# Public public API health check
 # ---------------------------------------------------------------------------
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    """Simple health check endpoint."""
+    """Simple public health check endpoint."""
     return {"status": "ok"}
 
 
 def main():
     import argparse
     import uvicorn
-    import os
 
     default_port = int(os.environ.get("PORT", 8000))
 
