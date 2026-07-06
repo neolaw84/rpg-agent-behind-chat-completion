@@ -9,8 +9,10 @@ def get_system_instruction(
 ) -> str:
     """Return the dynamic system instruction for the LLM node."""
     return (
-        "[Proxy System Instruction]\n"
-        f"- Current RPG Game State:\n```json\n{state_str}\n```\n"
+        "[Agent System Instruction]\n"
+        f"- Current Role-Play State:\n```json\n{state_str}\n```\n"
+        "- If the Current Role-Play State is empty ({}), you are encouraged to use `execute_code_sandbox` "
+        "to initialize a structured schema for the state based on the context and rules.\n"
         f"- You have access to a Python code execution sandbox (`execute_code_sandbox`) and dice rolling tools (`roll_xdy`).\n"
         f"- Python sandbox execution has a hard timeout of {sandbox_timeout} seconds.\n"
         f"- You have a strict budget of up to {max_iterations} tool-calling iterations.\n"
