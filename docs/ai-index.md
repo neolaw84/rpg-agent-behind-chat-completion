@@ -14,6 +14,7 @@ Welcome to the RPG Agent Behind Chat Completion repository! This file serves as 
 - `notebooks/`: Jupyter notebooks for experiments and prototyping.
 - `docs/`: Project documentation.
   - `ai-index.md`: This file — central developer/AI guidance index.
+- `data/` (Gitignored):
   - `example-janitorai-payload.md`: Auto-generated log of every payload received by the proxy.
 
 ## Running the Proxy
@@ -27,7 +28,7 @@ PYTHONPATH=src uvicorn rpg_agent.proxy:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 The proxy listens at `http://localhost:8000/v1/chat/completions` and forwards requests to OpenRouter.
-Every incoming payload is appended verbatim to `docs/example-janitorai-payload.md`.
+Every incoming payload is appended verbatim to `data/example-janitorai-payload.md`.
 
 
 ## Guidelines
