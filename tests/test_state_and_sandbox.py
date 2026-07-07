@@ -39,15 +39,19 @@ def test_missing_key_raises(tmp_store):
         tmp_store.get_before_state("nonexistent")
 
 
-def test_fifo_eviction(tmp_path):
+def test_lru_eviction(tmp_path):
     store = SessionStateStore("s1", tmp_path, max_size=3)
     store.save_turn("k1", {}, {"a": 1})
     store.save_turn("k2", {}, {"a": 2})
     store.save_turn("k3", {}, {"a": 3})
-    # Adding a 4th should evict k1
+    # Access k1 so it becomes the most recently used (MRU)
+    assert store.get_before_state("k1") == {"a": 1}
+    # Adding a 4th should evict k2 (LRU), not k1 (accessed) or k3 (newer)
     store.save_turn("k4", {}, {"a": 4})
-    with pytest.raises(KeyError):
-        store.get_before_state("k1")
+    with pytest.raises(KeyError, match="not found"):
+        store.get_before_state("k2")
+    assert store.get_before_state("k1") == {"a": 1}
+    assert store.get_before_state("k3") == {"a": 3}
     assert store.get_before_state("k4") == {"a": 4}
 
 
@@ -78,70 +82,128 @@ def test_list_sessions(tmp_path):
 # Sandbox tests
 # ---------------------------------------------------------------------------
 
-def test_sandbox_mutates_state():
+from rpg_agent.sandbox import PythonSandboxEngine, V8SandboxEngine
+
+# --- Python Engine Tests ---
+
+def test_python_sandbox_mutates_state():
+    engine = PythonSandboxEngine()
     code = "state['hp'] -= 10"
-    updated, output = execute_sandbox(code, {"hp": 100})
+    updated, output = engine.execute(code, {"hp": 100})
     assert updated["hp"] == 90
 
 
-def test_sandbox_captures_stdout():
+def test_python_sandbox_captures_stdout():
+    engine = PythonSandboxEngine()
     code = "print('hello world')"
-    _, output = execute_sandbox(code, {})
+    _, output = engine.execute(code, {})
     assert "hello world" in output
 
 
-def test_sandbox_blocks_os_import():
+def test_python_sandbox_blocks_os_import():
+    engine = PythonSandboxEngine()
     code = "import os; os.system('echo pwned')"
-    updated, output = execute_sandbox(code, {})
+    updated, output = engine.execute(code, {})
     assert "Sandbox Exception" in output or "import" in output.lower()
 
 
-def test_sandbox_timeout():
+def test_python_sandbox_timeout():
+    engine = PythonSandboxEngine()
     code = "while True: pass"
-    updated, output = execute_sandbox(code, {}, timeout_seconds=0.3)
+    updated, output = engine.execute(code, {}, timeout_seconds=0.3)
     assert "timed out" in output.lower()
 
 
-def test_sandbox_exception_is_captured():
+def test_python_sandbox_exception_is_captured():
+    engine = PythonSandboxEngine()
     code = "raise ValueError('oops')"
-    updated, output = execute_sandbox(code, {})
+    updated, output = engine.execute(code, {})
     assert "ValueError" in output
     assert "oops" in output
 
 
-def test_sandbox_non_dict_state_reverts():
+def test_python_sandbox_non_dict_state_reverts():
+    engine = PythonSandboxEngine()
     code = "state = 42"
     original = {"hp": 10}
-    updated, output = execute_sandbox(code, original)
+    updated, output = engine.execute(code, original)
     assert updated == original
     assert "Warning" in output
 
 
-def test_sandbox_allowed_imports_work():
+def test_python_sandbox_allowed_imports_work():
+    engine = PythonSandboxEngine()
     # Test importing whitelisted modules
-    code = "import math\nstate['val'] = math.sqrt(16)"
-    updated, output = execute_sandbox(code, {})
+    code = (
+        "import math, random, json, datetime, collections, itertools, functools, re, string\n"
+        "state['val'] = math.sqrt(16)\n"
+        "state['rand'] = random.randint(1, 1)\n"
+        "state['now'] = datetime.date(2026, 7, 8).isoformat()\n"
+        "state['cnt'] = collections.Counter([1, 1])[1]\n"
+    )
+    updated, output = engine.execute(code, {})
     assert updated.get("val") == 4.0
-
-    code = "import random\nstate['rand'] = random.randint(1, 1)"
-    updated, output = execute_sandbox(code, {})
     assert updated.get("rand") == 1
+    assert updated.get("now") == "2026-07-08"
+    assert updated.get("cnt") == 2
 
 
-def test_sandbox_pre_injected_modules_work():
+def test_python_sandbox_pre_injected_modules_work():
+    engine = PythonSandboxEngine()
     # Test using math and random without explicit imports
     code = "state['val'] = math.floor(4.7)"
-    updated, output = execute_sandbox(code, {})
+    updated, output = engine.execute(code, {})
     assert updated.get("val") == 4
 
     code = "state['rand'] = random.choice([42])"
-    updated, output = execute_sandbox(code, {})
+    updated, output = engine.execute(code, {})
     assert updated.get("rand") == 42
 
 
-def test_sandbox_blocks_unauthorized_imports():
+def test_python_sandbox_blocks_unauthorized_imports():
+    engine = PythonSandboxEngine()
     code = "import sys"
-    updated, output = execute_sandbox(code, {})
+    updated, output = engine.execute(code, {})
     assert "ImportError" in output
     assert "sys" in output
+
+
+# --- V8 Engine Tests ---
+
+def test_v8_sandbox_mutates_state():
+    engine = V8SandboxEngine()
+    code = "state.hp -= 10;"
+    updated, output = engine.execute(code, {"hp": 100})
+    assert updated["hp"] == 90
+
+
+def test_v8_sandbox_captures_stdout():
+    engine = V8SandboxEngine()
+    code = "console.log('hello world');"
+    _, output = engine.execute(code, {})
+    assert "hello world" in output
+
+
+def test_v8_sandbox_timeout():
+    engine = V8SandboxEngine()
+    code = "while (true) {}"
+    updated, output = engine.execute(code, {}, timeout_seconds=0.3)
+    assert "timed out" in output.lower()
+
+
+def test_v8_sandbox_exception_is_captured():
+    engine = V8SandboxEngine()
+    code = "throw new Error('oops');"
+    updated, output = engine.execute(code, {})
+    assert "Error" in output
+    assert "oops" in output
+
+
+def test_v8_sandbox_non_dict_state_reverts():
+    engine = V8SandboxEngine()
+    code = "state = 42;"
+    original = {"hp": 10}
+    updated, output = engine.execute(code, original)
+    assert updated == original
+    assert "Warning" in output
 

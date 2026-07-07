@@ -7,7 +7,8 @@ ENV PYTHONUNBUFFERED=1 \
     PORT=7860 \
     RPG_AGENT_STATE_DIR=/app/data/states \
     RPG_AGENT_KEY_FILE=/app/data/proxy.key \
-    RPG_AGENT_CONFIG_PATH=/app/configs.yaml
+    RPG_AGENT_CONFIG_PATH=/app/configs.yaml \
+    RPG_AGENT_SANDBOX_ENGINE=v8
 
 # Set work directory
 WORKDIR /app

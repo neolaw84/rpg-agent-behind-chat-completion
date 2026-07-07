@@ -26,6 +26,7 @@ from typing_extensions import TypedDict
 from rpg_agent.prompts import get_system_instruction
 from rpg_agent.tools import make_tools
 from rpg_agent.openrouter import convert_to_openai_messages, call_openrouter_streaming
+from rpg_agent.sandbox import get_sandbox_engine
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ def _build_llm_node(
             max_iterations=max_iterations,
             current_iteration=state["iteration_count"] + 1,
             rem_iterations=rem_iterations,
+            engine_name=get_sandbox_engine().name,
         )
 
         openai_msgs = convert_to_openai_messages(state["messages"])

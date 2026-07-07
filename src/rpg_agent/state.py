@@ -1,4 +1,4 @@
-"""Session State Store — FIFO, file-backed.
+"""Session State Store — LRU, file-backed.
 
 Each session is persisted as a single JSON file:
     data/states/{session_id}.json
@@ -9,7 +9,7 @@ The file contains an ordered dictionary (insertion order maintained in Python
   - values → {"before": {...}, "after": {...}}
 
 When the number of entries exceeds ``max_size`` (``num_states_to_track`` in
-configs.yaml), the oldest entry is dropped (FIFO).
+configs.yaml), the least recently used (LRU) entry is dropped.
 
 Best-effort guarantee: If the user edits or retries a turn, the turn key will
 change.  The store is a cache — not the source of truth.  Any state must be
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class SessionStateStore:
-    """Load, update, and persist a single session's FIFO state store."""
+    """Load, update, and persist a single session's LRU state store."""
 
     def __init__(self, session_id: str, storage_dir: Path, max_size: int = 8) -> None:
         self.session_id = session_id
@@ -59,7 +59,7 @@ class SessionStateStore:
         )
 
     # ------------------------------------------------------------------
-    # FIFO access
+    # LRU access
     # ------------------------------------------------------------------
 
     def get_before_state(self, prev_turn_key: str | None) -> dict[str, Any]:
@@ -74,10 +74,14 @@ class SessionStateStore:
         if prev_turn_key not in self._data:
             raise KeyError(
                 f"turn_key '{prev_turn_key}' not found in session '{self.session_id}'. "
-                "The state history may have been lost (proxy restart, FIFO eviction, or "
+                "The state history may have been lost (proxy restart, LRU eviction, or "
                 "the client sent a continuation without a prior proxy-annotated turn)."
             )
-        return dict(self._data[prev_turn_key].get("after", {}))
+        # Move to end (MRU) and save access order to disk
+        val = self._data.pop(prev_turn_key)
+        self._data[prev_turn_key] = val
+        self._save()
+        return dict(val.get("after", {}))
 
     def save_turn(
         self,
@@ -86,12 +90,14 @@ class SessionStateStore:
         after_state: dict[str, Any],
     ) -> None:
         """Persist a completed turn's before/after state, pruning if needed."""
+        if turn_key in self._data:
+            del self._data[turn_key]
         self._data[turn_key] = {"before": before_state, "after": after_state}
-        # Prune oldest entries if we exceed the FIFO limit.
+        # Prune oldest entries if we exceed the LRU limit.
         while len(self._data) > self.max_size:
             oldest_key = next(iter(self._data))
             del self._data[oldest_key]
-            logger.debug("FIFO: evicted turn %s from session %s", oldest_key, self.session_id)
+            logger.debug("LRU: evicted turn %s from session %s", oldest_key, self.session_id)
         self._save()
 
     # ------------------------------------------------------------------

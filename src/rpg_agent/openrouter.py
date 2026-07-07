@@ -5,7 +5,8 @@ import json
 from typing import Sequence
 import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
-from rpg_agent.schemas import TOOLS_SCHEMA
+from rpg_agent.schemas import get_tools_schema
+from rpg_agent.sandbox import get_sandbox_engine
 
 def convert_to_openai_messages(messages: Sequence[BaseMessage]) -> list[dict]:
     """Convert LangChain messages to OpenAI-compatible message dicts."""
@@ -61,7 +62,7 @@ async def call_openrouter_streaming(
     payload = {
         "model": model,
         "messages": openai_messages,
-        "tools": TOOLS_SCHEMA,
+        "tools": get_tools_schema(get_sandbox_engine().name),
         "stream": stream_queue is not None,
     }
     # Request reasoning explicitly if the provider/model supports it
