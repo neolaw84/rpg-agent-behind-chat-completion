@@ -1,21 +1,7 @@
-"""Pure Python Restricted Code Sandbox.
+"""SOLID Code Sandbox Execution Engine supporting V8 and Python.
 
-Executes an LLM-generated Python code snippet in a restricted environment with:
-  - A stripped ``__builtins__`` to block dangerous system-level access.
-  - A configurable wall-clock timeout enforced via ``multiprocessing`` so that
-    a runaway infinite loop is **hard-killed** (unlike threads, a subprocess
-    can be terminated with SIGKILL/TerminateProcess).
-  - A mutable ``state`` dict (the current turn's ``before`` state) injected
-    into the execution namespace so the code can read and update RPG state.
-
-Security note
--------------
-This sandbox uses Python's ``exec()`` with a restricted globals dict running in
-a child process.  It is NOT equivalent to OS-level isolation (e.g. Docker).
-Language-level restrictions can be escaped by determined adversarial code.
-This is intentional: the system is for entertainment and runs locally or in
-trusted cloud environments.  The subprocess boundary is the key safety layer
-— a runaway loop or crash cannot hang the parent proxy server.
+Provides execution environments for LLM-generated code snippets to read or
+modify RPG state dictionaries.
 """
 
 from __future__ import annotations
@@ -24,20 +10,61 @@ import io
 import logging
 import multiprocessing
 import traceback
+import os
+from abc import ABC, abstractmethod
 from contextlib import redirect_stdout
 from typing import Any
+
+# Safe Python standard libraries pre-imported for Python engine
+import math
+import random
+import json
+import datetime
+import collections
+import itertools
+import functools
+import re
+import string
 
 logger = logging.getLogger(__name__)
 
 
-import math
-import random
-import json 
+# ---------------------------------------------------------------------------
+# Base Sandbox Interface
+# ---------------------------------------------------------------------------
 
-ALLOWED_MODULES = {"math", "time", "json"}
+class SandboxEngine(ABC):
+    """Abstract base class representing a code sandbox execution engine."""
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """The identifier of the engine (e.g. 'v8', 'python')."""
+        pass
+
+    @abstractmethod
+    def execute(
+        self,
+        code: str,
+        state: dict[str, Any],
+        timeout_seconds: float = 2.0,
+    ) -> tuple[dict[str, Any], str]:
+        """Execute the given code to mutate `state` and return (updated_state, output_logs)."""
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Python Sandbox Engine Implementation
+# ---------------------------------------------------------------------------
+
+# Allowed modules to import in the Python sandbox
+ALLOWED_PYTHON_MODULES = {
+    "math", "time", "json", "random",
+    "datetime", "collections", "itertools", "functools", "re", "string"
+}
 
 def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
-    if name in ALLOWED_MODULES:
+    if name in ALLOWED_PYTHON_MODULES:
         return __import__(name, globals, locals, fromlist, level)
     raise ImportError(f"Import of module '{name}' is not allowed in this sandbox.")
 
@@ -97,21 +124,19 @@ _SAFE_GLOBALS: dict[str, Any] = {
     "math": math,
     "random": random,
     "json": json,
+    "datetime": datetime,
+    "collections": collections,
+    "itertools": itertools,
+    "functools": functools,
+    "re": re,
+    "string": string,
 }
 
-
-# ---------------------------------------------------------------------------
-# Worker function (runs in child process)
-# ---------------------------------------------------------------------------
-
-def _worker(
+def _python_worker(
     code: str,
     state: dict[str, Any],
-    result_queue: "multiprocessing.Queue[tuple[dict, str]]",
+    result_queue: multiprocessing.Queue,
 ) -> None:
-    """Execute ``code`` inside a restricted namespace and push results to the
-    queue.  Any exception is caught and serialised into the output string.
-    """
     stdout_buf = io.StringIO()
     local_ns: dict[str, Any] = {"state": state}
 
@@ -133,54 +158,171 @@ def _worker(
     result_queue.put((updated_state, stdout_buf.getvalue()))
 
 
+class PythonSandboxEngine(SandboxEngine):
+    """Execution engine for restricted pure Python code."""
+
+    @property
+    def name(self) -> str:
+        return "python"
+
+    def execute(
+        self,
+        code: str,
+        state: dict[str, Any],
+        timeout_seconds: float = 2.0,
+    ) -> tuple[dict[str, Any], str]:
+        ctx = multiprocessing.get_context("spawn")
+        result_queue: multiprocessing.Queue = ctx.Queue()
+
+        proc = ctx.Process(
+            target=_python_worker,
+            args=(code, dict(state), result_queue),
+            daemon=True,
+        )
+        proc.start()
+        proc.join(timeout=timeout_seconds)
+
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=2.0)
+            if proc.is_alive():
+                proc.kill()
+            logger.warning("Python sandbox timed out after %.1fs and was killed.", timeout_seconds)
+            return state, f"[Sandbox timed out after {timeout_seconds}s — execution aborted]"
+
+        if not result_queue.empty():
+            updated_state, output = result_queue.get_nowait()
+            return updated_state, output
+
+        logger.error("Python sandbox worker exited without producing a result (exit code %s).", proc.exitcode)
+        return state, f"[Sandbox worker crashed unexpectedly (exit code {proc.exitcode})]"
+
+
 # ---------------------------------------------------------------------------
-# Public API
+# V8 JavaScript Sandbox Engine Implementation
 # ---------------------------------------------------------------------------
+
+def _v8_worker(
+    code: str,
+    state: dict[str, Any],
+    result_queue: multiprocessing.Queue,
+) -> None:
+    from py_mini_racer import MiniRacer
+    import json
+
+    # Redefine console.log to redirect prints to our logs buffer
+    js_init = """
+    var _logs = [];
+    var console = {
+        log: function() {
+            var args = Array.prototype.slice.call(arguments);
+            var msg = args.map(function(x) {
+                if (x === null) return "null";
+                if (x === undefined) return "undefined";
+                if (typeof x === 'object') {
+                    try { return JSON.stringify(x); } catch(e) { return String(x); }
+                }
+                return String(x);
+            }).join(' ');
+            _logs.push(msg);
+        }
+    };
+    """
+
+    # Inject current RPG state
+    state_json = json.dumps(state, ensure_ascii=False)
+    js_init += f"\nvar state = {state_json};\n"
+
+    # Wrap inside IIFE and catch execution exceptions
+    js_run = f"""
+    try {{
+        (function() {{
+            {code}
+        }})();
+    }} catch (e) {{
+        _logs.push("--- Sandbox Exception ---");
+        _logs.push(e.stack || e.toString());
+    }}
+    JSON.stringify({{state: state, logs: _logs}});
+    """
+
+    try:
+        ctx = MiniRacer()
+        ctx.eval(js_init)
+        result_str = ctx.eval(js_run)
+        res = json.loads(result_str)
+        updated_state = res.get("state", state)
+        if not isinstance(updated_state, dict):
+            logs = "\n".join(res.get("logs", [])) + (
+                "\n--- Sandbox Warning: 'state' was replaced with a non-object; "
+                "reverting to original state. ---\n"
+            )
+            updated_state = state
+        else:
+            logs = "\n".join(res.get("logs", []))
+    except Exception as exc:
+        updated_state = state
+        logs = f"--- Sandbox Exception ---\n{traceback.format_exc()}"
+
+    result_queue.put((updated_state, logs))
+
+
+class V8SandboxEngine(SandboxEngine):
+    """Execution engine for sandboxed JavaScript via V8 isolates."""
+
+    @property
+    def name(self) -> str:
+        return "v8"
+
+    def execute(
+        self,
+        code: str,
+        state: dict[str, Any],
+        timeout_seconds: float = 2.0,
+    ) -> tuple[dict[str, Any], str]:
+        ctx = multiprocessing.get_context("spawn")
+        result_queue: multiprocessing.Queue = ctx.Queue()
+
+        proc = ctx.Process(
+            target=_v8_worker,
+            args=(code, dict(state), result_queue),
+            daemon=True,
+        )
+        proc.start()
+        proc.join(timeout=timeout_seconds)
+
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=2.0)
+            if proc.is_alive():
+                proc.kill()
+            logger.warning("V8 sandbox timed out after %.1fs and was killed.", timeout_seconds)
+            return state, f"[Sandbox timed out after {timeout_seconds}s — execution aborted]"
+
+        if not result_queue.empty():
+            updated_state, output = result_queue.get_nowait()
+            return updated_state, output
+
+        logger.error("V8 sandbox worker exited without producing a result (exit code %s).", proc.exitcode)
+        return state, f"[Sandbox worker crashed unexpectedly (exit code {proc.exitcode})]"
+
+
+# ---------------------------------------------------------------------------
+# Factory & Helpers
+# ---------------------------------------------------------------------------
+
+def get_sandbox_engine() -> SandboxEngine:
+    """Return the configured SandboxEngine instance based on environment variables."""
+    engine_name = os.environ.get("RPG_AGENT_SANDBOX_ENGINE", "v8").strip().lower()
+    if engine_name == "python":
+        return PythonSandboxEngine()
+    return V8SandboxEngine()
+
 
 def execute_sandbox(
     code: str,
     state: dict[str, Any],
     timeout_seconds: float = 2.0,
 ) -> tuple[dict[str, Any], str]:
-    """Run ``code`` in an isolated child process with a hard timeout.
-
-    The child process is forcibly terminated (SIGKILL / TerminateProcess) if
-    it does not finish within ``timeout_seconds``, preventing runaway loops
-    from blocking the proxy.
-
-    Args:
-        code:             Python source to execute.
-        state:            The current RPG state dict (``before`` state).
-                          The code may read/mutate it via the ``state`` variable.
-        timeout_seconds:  Hard wall-clock limit on execution time.
-
-    Returns:
-        ``(updated_state, output)`` where ``output`` is stdout + any exception
-        traceback produced during execution.
-    """
-    ctx = multiprocessing.get_context("spawn")
-    result_queue: multiprocessing.Queue = ctx.Queue()
-
-    proc = ctx.Process(
-        target=_worker,
-        args=(code, dict(state), result_queue),
-        daemon=True,
-    )
-    proc.start()
-    proc.join(timeout=timeout_seconds)
-
-    if proc.is_alive():
-        proc.terminate()
-        proc.join(timeout=2.0)   # Allow SIGTERM to propagate
-        if proc.is_alive():
-            proc.kill()          # SIGKILL as last resort
-        logger.warning("Sandbox code timed out after %.1fs and was killed.", timeout_seconds)
-        return state, f"[Sandbox timed out after {timeout_seconds}s — execution aborted]"
-
-    if not result_queue.empty():
-        updated_state, output = result_queue.get_nowait()
-        return updated_state, output
-
-    # Child exited without putting a result (crash / OOM)
-    logger.error("Sandbox worker exited without producing a result (exit code %s).", proc.exitcode)
-    return state, f"[Sandbox worker crashed unexpectedly (exit code {proc.exitcode})]"
+    """Execute code using the default/configured sandbox engine (compatibility helper)."""
+    return get_sandbox_engine().execute(code, state, timeout_seconds)

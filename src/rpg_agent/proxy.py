@@ -194,13 +194,20 @@ async def proxy_chat_completions(
     )
 
     is_first_turn = len(messages) <= 2
+    cache_miss = False
     if is_first_turn:
         before_state: dict[str, Any] = {}
     else:
         try:
             before_state = store.get_before_state(prev_turn_key)
         except KeyError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            logger.warning(
+                "Cache miss on turn key %s in session %s. Treating as a new session.",
+                prev_turn_key,
+                resolved_sid,
+            )
+            cache_miss = True
+            before_state = {}
 
     _log_request(request, payload, resolved_sid, sid_method, turn_key, prev_turn_key)
 
@@ -269,6 +276,22 @@ async def proxy_chat_completions(
                 yield f"data: {chunk}\n\n".encode()
                 stream_queue.task_done()
 
+            # 2.5. If cache miss occurred, yield the OOC notice chunk at the end of the text
+            if cache_miss:
+                ooc_text = "\n\n(OOC: A state cache miss occurred. The proxy has generated a new session and made a best-effort restoration.)"
+                ooc_chunk = _json.dumps({
+                    "id": f"proxy-{turn_key}",
+                    "object": "chat.completion.chunk",
+                    "created": int(_time.time()),
+                    "model": model,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {"content": ooc_text},
+                        "finish_reason": None,
+                    }],
+                })
+                yield f"data: {ooc_chunk}\n\n".encode()
+
             # 3. Finalize and persist state
             try:
                 result = await agent_task
@@ -310,6 +333,9 @@ async def proxy_chat_completions(
 
         after_state = result["after_state"]
         final_content = result["content"]
+        if cache_miss:
+            ooc_text = "\n\n(OOC: A state cache miss occurred. The proxy has generated a new session and made a best-effort restoration.)"
+            final_content += ooc_text
         final_reasoning = result.get("reasoning_content") or ""
 
         # Persist state
