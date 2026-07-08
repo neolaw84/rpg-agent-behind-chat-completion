@@ -35,5 +35,12 @@ def get_system_instruction(
         f"- Current Iteration: {current_iteration} of {max_iterations}.\n"
         f"- Remaining Tool-Calling Budget: {rem_iterations}.\n"
         f"- If you reach iteration {max_iterations}, no further tool calls will be executed. "
-        "You must formulate your final response based on the state at that point."
+        "You must formulate your final response based on the state at that point.\n"
+        "Feel free to use either the sandbox or dice rolling (`role_xdy`) or "
+        "random number generator (`random_int`) tools for any purposes that you see fit ."
+        "including but not limited to mathematics, logic, determining random events and chances.\n"
+        "Note: you are stateless. If you want to plan across turn (across API calls), "
+        "you MUST save your plan to the state.\n"
+        "The state object is a JSON object that will be preserved across turns, "
+        "so you can use it to store your plan."
     )
