@@ -1,7 +1,7 @@
 """Session Administration Endpoints Router."""
 
 import logging
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from rpg_agent.auth import require_proxy_key
 from rpg_agent.config import STATE_STORAGE_DIR
 from rpg_agent.state import SessionStateStore
@@ -17,7 +17,31 @@ router = APIRouter(
 @router.get("/sessions")
 def list_sessions():
     """List session IDs present in the state directory."""
-    return SessionStateStore.list_sessions(STATE_STORAGE_DIR)
+    sessions = SessionStateStore.list_sessions(STATE_STORAGE_DIR)
+    return {"sessions": sessions, "count": len(sessions)}
+
+@router.get("/sessions/{session_id}")
+def get_session(session_id: str):
+    """Return the full state JSON for a specific session."""
+    store = SessionStateStore(session_id, STATE_STORAGE_DIR)
+    # _data is the internal ordered dict: turn_key -> {before, after}
+    turns = []
+    for turn_key, turn_data in store._data.items():
+        turns.append({
+            "turn_key": turn_key,
+            "before": turn_data.get("before", {}),
+            "after": turn_data.get("after", {}),
+        })
+    if not turns:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found or has no state.")
+    # The most recent turn's "after" is the current live state
+    current_state = turns[-1]["after"] if turns else {}
+    return {
+        "session_id": session_id,
+        "current_state": current_state,
+        "turn_count": len(turns),
+        "turns": turns,
+    }
 
 @router.post("/sessions/{session_id}/reset")
 def reset_session(session_id: str):
@@ -32,3 +56,4 @@ def delete_session(session_id: str):
     store = SessionStateStore(session_id, STATE_STORAGE_DIR)
     store.delete()
     return {"status": "ok", "message": f"Session {session_id} deleted."}
+

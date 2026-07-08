@@ -13,6 +13,7 @@ def get_system_instruction(
         sandbox_info = (
             "- You have access to a JavaScript code execution sandbox (`execute_code_sandbox`) and dice rolling tools (`roll_xdy`).\n"
             "- The JavaScript sandbox allows you to read/mutate the global `state` object. Standard console methods like `console.log` work.\n"
+            "- Note: If the sandbox execution fails (due to syntax errors, exceptions, timeouts, or replacing `state` with a non-object), any changes are discarded and the original pre-execution state is fully restored.\n"
         )
     else:
         sandbox_info = (
@@ -20,6 +21,7 @@ def get_system_instruction(
             "- The Python sandbox allows you to read/mutate the `state` dict.\n"
             "- The Python sandbox has the following libraries available: math, random, json, time, datetime, collections, itertools, functools, re, string. "
             "Nothing outside of these libraries is available.\n"
+            "- Note: If the sandbox execution fails (due to syntax errors, exceptions, timeouts, or replacing `state` with a non-dict), any changes are discarded and the original pre-execution state is fully restored.\n"
         )
 
     return (
