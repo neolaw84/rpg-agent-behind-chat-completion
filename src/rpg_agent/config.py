@@ -63,4 +63,4 @@ if _env_key_file:
 else:
     KEY_FILE: Path = (_BASE_DIR / "proxy.key").resolve()
 
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1/chat/completions"
