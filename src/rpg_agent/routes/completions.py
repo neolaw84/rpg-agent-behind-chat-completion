@@ -201,7 +201,7 @@ async def proxy_chat_completions(
         raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
 
     messages: list[dict] = payload.get("messages", [])
-    model: str = payload.get("model", "google/gemini-flash-1.5")
+    model: str = payload.get("model") or os.environ.get("DEFAULT_MODEL") or "google/gemini-flash-1.5"
 
     # --- Session & turn resolution ---
     resolved_sid, sid_method = resolve_session_id(

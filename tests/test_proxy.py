@@ -21,7 +21,7 @@ def auth_headers():
     return {"Authorization": f"Bearer {PROXY_API_KEY}"}
 
 
-@patch("rpg_agent.proxy.run_agent", new_callable=AsyncMock)
+@patch("rpg_agent.routes.completions.run_agent", new_callable=AsyncMock)
 def test_unauthorized_request(mock_run, client):
     """Verify that requests without a valid Bearer token are rejected with 401."""
     resp = client.post("/v1/chat/completions", json={"messages": []})
@@ -30,7 +30,7 @@ def test_unauthorized_request(mock_run, client):
 
 
 @pytest.mark.parametrize("engine_name", ["v8", "python"])
-@patch("rpg_agent.proxy.run_agent", new_callable=AsyncMock)
+@patch("rpg_agent.routes.completions.run_agent", new_callable=AsyncMock)
 def test_normal_flow_and_persistence(mock_run, client, auth_headers, tmp_path, engine_name):
     """Verify normal non-streaming request flow and state persistence."""
     mock_run.return_value = {
@@ -43,7 +43,7 @@ def test_normal_flow_and_persistence(mock_run, client, auth_headers, tmp_path, e
 
     with patch.dict(os.environ, env_patch):
         # Use patch for state storage dir to keep it clean
-        with patch("rpg_agent.proxy.STATE_STORAGE_DIR", tmp_path):
+        with patch("rpg_agent.routes.completions.STATE_STORAGE_DIR", tmp_path):
             payload = {
                 "messages": [
                     {"role": "system", "content": "You are a GM."},
@@ -77,7 +77,7 @@ def test_normal_flow_and_persistence(mock_run, client, auth_headers, tmp_path, e
 
 
 @pytest.mark.parametrize("engine_name", ["v8", "python"])
-@patch("rpg_agent.proxy.run_agent", new_callable=AsyncMock)
+@patch("rpg_agent.routes.completions.run_agent", new_callable=AsyncMock)
 def test_cache_miss_handling(mock_run, client, auth_headers, tmp_path, engine_name):
     """Verify that a cache miss does not return 400 but treats request as if new,
     appending the OOC recovery message.
@@ -90,7 +90,7 @@ def test_cache_miss_handling(mock_run, client, auth_headers, tmp_path, engine_na
     env_patch = {"RPG_AGENT_SANDBOX_ENGINE": engine_name}
 
     with patch.dict(os.environ, env_patch):
-        with patch("rpg_agent.proxy.STATE_STORAGE_DIR", tmp_path):
+        with patch("rpg_agent.routes.completions.STATE_STORAGE_DIR", tmp_path):
             payload = {
                 "messages": [
                     {"role": "system", "content": "You are a GM."},
@@ -126,7 +126,7 @@ def test_cache_miss_handling(mock_run, client, auth_headers, tmp_path, engine_na
 
 
 @pytest.mark.parametrize("engine_name", ["v8", "python"])
-@patch("rpg_agent.proxy.run_agent", new_callable=AsyncMock)
+@patch("rpg_agent.routes.completions.run_agent", new_callable=AsyncMock)
 def test_streaming_cache_miss(mock_run, client, auth_headers, tmp_path, engine_name):
     """Verify that streaming response handles cache miss by appending the OOC notice chunk."""
     async def mock_run_streaming(*args, **kwargs):
@@ -143,7 +143,7 @@ def test_streaming_cache_miss(mock_run, client, auth_headers, tmp_path, engine_n
     env_patch = {"RPG_AGENT_SANDBOX_ENGINE": engine_name}
 
     with patch.dict(os.environ, env_patch):
-        with patch("rpg_agent.proxy.STATE_STORAGE_DIR", tmp_path):
+        with patch("rpg_agent.routes.completions.STATE_STORAGE_DIR", tmp_path):
             payload = {
                 "messages": [
                     {"role": "system", "content": "You are a GM."},

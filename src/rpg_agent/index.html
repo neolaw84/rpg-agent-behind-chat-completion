@@ -359,7 +359,7 @@ function loadStatus() {
   spinner.classList.remove('hidden');
   apiFetch('/v1/status').then(function(res) { return res.json(); }).then(function(d) {
     var cards = [
-      {label: 'OpenRouter Key',  value: d.openrouter_key_set ? '✓ Set' : '✗ Missing', cls: d.openrouter_key_set ? 'ok' : 'err'},
+      {label: 'API Key',  value: d.openrouter_key_set ? '✓ Set' : '✗ Missing', cls: d.openrouter_key_set ? 'ok' : 'err'},
       {label: 'Sandbox Engine',  value: d.sandbox_engine || '—'},
       {label: 'Sandbox Timeout', value: d.sandbox_timeout + 's'},
       {label: 'Max Iterations',  value: d.max_iterations},
@@ -371,7 +371,7 @@ function loadStatus() {
     }).join('');
     document.getElementById('cred-endpoint').textContent = d.api_endpoint || '—';
     if (d.openrouter_key_set) { dot.className = 'status-dot ok'; txt.textContent = 'Proxy OK'; }
-    else { dot.className = 'status-dot warn'; txt.textContent = 'OpenRouter key not set'; }
+    else { dot.className = 'status-dot warn'; txt.textContent = 'API key not set'; }
   }).catch(function(e) {
     if (e.message !== 'Unauthorized') { dot.className = 'status-dot err'; txt.textContent = 'Error'; }
   }).finally(function() { spinner.classList.add('hidden'); });

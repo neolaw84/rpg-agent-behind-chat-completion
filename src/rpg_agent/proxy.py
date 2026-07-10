@@ -62,9 +62,9 @@ async def lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
-    title="OpenRouter RPG Agent Proxy",
+    title="RPG Agent Proxy",
     description=(
-        "Proxy that forwards JanitorAI requests to OpenRouter through a "
+        "Proxy that forwards JanitorAI requests to an LLM API through a "
         "LangGraph agent with code sandbox and dice-rolling tools."
     ),
     version="0.2.0",

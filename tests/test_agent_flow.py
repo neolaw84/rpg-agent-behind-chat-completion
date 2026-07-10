@@ -91,7 +91,7 @@ async def test_run_agent_flow_with_streaming():
             messages=[{"role": "user", "content": "attack me"}],
             before_state=before_state,
             api_key="mock_key",
-            base_url="https://mock-openrouter/api/v1",
+            base_url="https://mock-openrouter/api/v1/chat/completions",
             model="mock-model",
             sandbox_timeout=1.0,
             max_iterations=5,

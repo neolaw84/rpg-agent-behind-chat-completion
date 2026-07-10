@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from typing import Sequence
 import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -66,7 +67,9 @@ async def call_openrouter_streaming(
         "stream": stream_queue is not None,
     }
     # Request reasoning explicitly if the provider/model supports it
-    payload["extra_body"] = {"include_reasoning": True}
+    include_reasoning = os.environ.get("RPG_AGENT_INCLUDE_REASONING", "true").lower() not in ("false", "0", "no")
+    if include_reasoning:
+        payload["extra_body"] = {"include_reasoning": True}
 
     if stream_queue is not None:
         final_content = []
@@ -76,7 +79,7 @@ async def call_openrouter_streaming(
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
                 "POST",
-                f"{base_url}/chat/completions",
+                base_url,
                 json=payload,
                 headers=headers,
             ) as response:
@@ -147,7 +150,7 @@ async def call_openrouter_streaming(
         # Non-streaming call
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
-                f"{base_url}/chat/completions",
+                base_url,
                 json=payload,
                 headers=headers,
             )
