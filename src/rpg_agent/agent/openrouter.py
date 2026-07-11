@@ -6,8 +6,18 @@ import os
 from typing import Sequence
 import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
-from rpg_agent.schemas import get_tools_schema
-from rpg_agent.sandbox import get_sandbox_engine
+from rpg_agent.sandbox.schemas import get_tools_schema
+from rpg_agent.sandbox.sandbox import get_sandbox_engine
+from rpg_agent.config import INCLUDE_REASONING, REASONING_PAYLOAD
+
+def deep_merge(dict1: dict, dict2: dict) -> dict:
+    """Recursively merge dict2 into dict1."""
+    for key, value in dict2.items():
+        if isinstance(value, dict) and key in dict1 and isinstance(dict1[key], dict):
+            deep_merge(dict1[key], value)
+        else:
+            dict1[key] = value
+    return dict1
 
 def convert_to_openai_messages(messages: Sequence[BaseMessage]) -> list[dict]:
     """Convert LangChain messages to OpenAI-compatible message dicts."""
@@ -67,9 +77,8 @@ async def call_openrouter_streaming(
         "stream": stream_queue is not None,
     }
     # Request reasoning explicitly if the provider/model supports it
-    include_reasoning = os.environ.get("RPG_AGENT_INCLUDE_REASONING", "true").lower() not in ("false", "0", "no")
-    if include_reasoning:
-        payload["extra_body"] = {"include_reasoning": True}
+    if INCLUDE_REASONING:
+        deep_merge(payload, REASONING_PAYLOAD)
 
     if stream_queue is not None:
         final_content = []

@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from rpg_agent.auth import require_proxy_key
 from rpg_agent.config import STATE_STORAGE_DIR
-from rpg_agent.state import SessionStateStore
+from rpg_agent.core.state import SessionStateStore
 
 logger = logging.getLogger(__name__)
 

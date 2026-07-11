@@ -15,3 +15,22 @@ langgraph:
   # Maximum LLM ↔ Tool round-trips per request before the graph is forced
   # to stop.  Set to 5 so a stuck loop cannot spin indefinitely.
   max_iterations: 5
+
+llm:
+  # The full completions API endpoint URL.
+  base_url: "https://openrouter.ai/api/v1/chat/completions"
+  # Default model fallback if not specified in the payload.
+  default_model: "google/gemini-flash-1.5"
+  # Whether to explicitly request reasoning (useful for OpenRouter).
+  include_reasoning: true
+  # Optional reasoning format. Supported: Open-Router, OpenAI, Gemini, Anthropic, X.AI, Z.AI, DeepSeek, custom.
+  # Defaults to "Open-Router".
+  # reasoning_format: "Open-Router"
+  # 
+  # If reasoning_format is "custom", specify the reasoning_payload below:
+  # reasoning_payload:
+  #   extra_body:
+  #     thinking:
+  #       type: "enabled"
+
+

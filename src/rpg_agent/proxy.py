@@ -97,20 +97,9 @@ def main():
     parser = argparse.ArgumentParser(description="RPG Agent Chat Completion Proxy")
     parser.add_argument("--host", default="0.0.0.0", help="Binding host")
     parser.add_argument("--port", type=int, default=default_port, help="Binding port")
-    parser.add_argument("--config", help="Path to configs.yaml")
-    parser.add_argument("--state-dir", help="Directory where per-session state files are saved")
-    parser.add_argument("--key-file", help="Path to the proxy API key file")
     parser.add_argument("--reload", action="store_true", help="Enable uvicorn reload")
 
     args = parser.parse_args()
-
-    # Pass configurations to module via environment variables before running uvicorn
-    if args.config:
-        os.environ["RPG_AGENT_CONFIG_PATH"] = args.config
-    if args.state_dir:
-        os.environ["RPG_AGENT_STATE_DIR"] = args.state_dir
-    if args.key_file:
-        os.environ["RPG_AGENT_KEY_FILE"] = args.key_file
 
     uvicorn.run("rpg_agent.proxy:app", host=args.host, port=args.port, reload=args.reload)
 

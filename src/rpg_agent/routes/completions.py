@@ -19,20 +19,21 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from rpg_agent.auth import require_proxy_key
 from rpg_agent.config import (
+    DEFAULT_MODEL,
     MAX_ITERATIONS,
     NUM_STATES_TO_TRACK,
     OPENROUTER_BASE_URL,
     SANDBOX_TIMEOUT,
     STATE_STORAGE_DIR,
 )
-from rpg_agent.graph import run_agent
-from rpg_agent.session import (
+from rpg_agent.agent.graph import run_agent
+from rpg_agent.core.session import (
     compute_turn_key,
     extract_prev_turn_key,
     resolve_session_id,
     strip_proxy_annotations,
 )
-from rpg_agent.state import SessionStateStore
+from rpg_agent.core.state import SessionStateStore
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +202,7 @@ async def proxy_chat_completions(
         raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
 
     messages: list[dict] = payload.get("messages", [])
-    model: str = payload.get("model") or os.environ.get("DEFAULT_MODEL") or "google/gemini-flash-1.5"
+    model: str = payload.get("model") or DEFAULT_MODEL
 
     # --- Session & turn resolution ---
     resolved_sid, sid_method = resolve_session_id(

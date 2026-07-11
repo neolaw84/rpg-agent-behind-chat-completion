@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from rpg_agent.state import SessionStateStore
-from rpg_agent.sandbox import execute_sandbox
+from rpg_agent.core.state import SessionStateStore
+from rpg_agent.sandbox.sandbox import execute_sandbox
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ def test_list_sessions(tmp_path):
 # Sandbox tests
 # ---------------------------------------------------------------------------
 
-from rpg_agent.sandbox import PythonSandboxEngine, V8SandboxEngine
+from rpg_agent.sandbox.sandbox import PythonSandboxEngine, V8SandboxEngine
 
 # --- Python Engine Tests ---
 

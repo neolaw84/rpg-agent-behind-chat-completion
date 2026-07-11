@@ -8,7 +8,7 @@ os.environ["OPENROUTER_API_KEY"] = "mock_key"
 
 from rpg_agent.proxy import app
 from rpg_agent.auth import PROXY_API_KEY
-from rpg_agent.state import SessionStateStore
+from rpg_agent.core.state import SessionStateStore
 
 
 @pytest.fixture()

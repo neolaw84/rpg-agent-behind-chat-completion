@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 from langchain_core.messages import AIMessage, SystemMessage
 
-from rpg_agent.graph import run_agent, _convert_messages
+from rpg_agent.agent.graph import run_agent, _convert_messages
 
 
 @pytest.mark.asyncio

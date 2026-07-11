@@ -4,7 +4,7 @@ import logging
 import random
 from typing import Any
 from langchain_core.tools import tool, StructuredTool
-from rpg_agent.sandbox import get_sandbox_engine
+from rpg_agent.sandbox.sandbox import get_sandbox_engine
 
 logger = logging.getLogger(__name__)
 

@@ -18,11 +18,11 @@ from rpg_agent.config import (
     SANDBOX_TIMEOUT,
     STATE_STORAGE_DIR,
 )
-from rpg_agent.state import SessionStateStore
+from rpg_agent.core.state import SessionStateStore
 
 router = APIRouter(tags=["system"])
 
-_DASHBOARD_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "index.html")
+_DASHBOARD_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates", "index.html")
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ async def health() -> dict[str, str]:
 @router.get("/v1/status", dependencies=[Depends(require_proxy_key)])
 async def proxy_status() -> dict:
     """Return configuration and runtime status for the dashboard."""
-    from rpg_agent.sandbox import get_sandbox_engine
+    from rpg_agent.sandbox.sandbox import get_sandbox_engine
     public_url = detect_public_url()
     return {
         "openrouter_key_set": bool(os.environ.get("OPENROUTER_API_KEY")),
