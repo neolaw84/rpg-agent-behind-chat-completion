@@ -1,6 +1,12 @@
 """Tool Schemas for OpenRouter direct function calling."""
 
-def get_tools_schema(engine_name: str = "v8") -> list[dict]:
+from typing import Any
+
+def get_tools_schema(
+    engine_name: str = "v8",
+    include_plan: bool = False,
+    include_summary: bool = False,
+) -> list[dict[str, Any]]:
     """Return the tools schema for OpenRouter completions based on engine name."""
     if engine_name == "v8":
         sandbox_desc = (
@@ -18,7 +24,7 @@ def get_tools_schema(engine_name: str = "v8") -> list[dict]:
         )
         code_desc = "The Python code snippet to run."
 
-    return [
+    tools: list[dict[str, Any]] = [
         {
             "type": "function",
             "function": {
@@ -84,4 +90,100 @@ def get_tools_schema(engine_name: str = "v8") -> list[dict]:
     }
 ]
 
+    if include_plan:
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": "update_plan",
+                "description": "Update the narrative plan/checklist entirely. The checklist is a list of dictionaries matching the plan schema.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "checklist": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {
+                                        "type": "integer",
+                                        "description": "Sequential unique item identifier starting at 1"
+                                    },
+                                    "description": {
+                                        "type": "string",
+                                        "description": "The description of the narrative goal or action"
+                                    },
+                                    "status": {
+                                        "type": "string",
+                                        "enum": ["to-do", "in-progress", "done", "abandoned"],
+                                        "description": "Status of the checklist item"
+                                    },
+                                    "remark": {
+                                        "type": "string",
+                                        "description": "Remark, schedule, or notes for this item"
+                                    }
+                                },
+                                "required": ["id", "description", "status", "remark"]
+                            },
+                            "description": "The updated plan checklist of narrative goals."
+                        }
+                    },
+                    "required": ["checklist"]
+                }
+            }
+        })
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": "update_plan_status",
+                "description": "Update the status of plan items by their ID.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "updates": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {
+                                        "type": "integer",
+                                        "description": "The ID of the plan item to update"
+                                    },
+                                    "status": {
+                                        "type": "string",
+                                        "enum": ["to-do", "in-progress", "done", "abandoned"]
+                                    }
+                                },
+                                "required": ["id", "status"]
+                            },
+                            "description": "List of updates to apply."
+                        }
+                    },
+                    "required": ["updates"]
+                }
+            }
+        })
+
+    if include_summary:
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": "append_summary",
+                "description": "Append a new summary block describing the events that have unfolded since the last summary (200-300 words).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "The concise new summary block to append."
+                        }
+                    },
+                    "required": ["text"]
+                }
+            }
+        })
+
+    return tools
+
+
 TOOLS_SCHEMA = get_tools_schema("python")
+

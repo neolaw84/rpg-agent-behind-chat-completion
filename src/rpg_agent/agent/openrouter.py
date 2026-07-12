@@ -3,7 +3,7 @@
 import asyncio
 import json
 import os
-from typing import Sequence
+from typing import Any, Sequence
 import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from rpg_agent.sandbox.schemas import get_tools_schema
@@ -26,7 +26,7 @@ def convert_to_openai_messages(messages: Sequence[BaseMessage]) -> list[dict]:
         if isinstance(m, SystemMessage):
             openai_msgs.append({"role": "system", "content": m.content})
         elif isinstance(m, AIMessage):
-            msg = {"role": "assistant"}
+            msg: dict[str, Any] = {"role": "assistant"}
             if m.content:
                 msg["content"] = m.content
             if m.tool_calls:
@@ -62,6 +62,8 @@ async def call_openrouter_streaming(
     model: str,
     openai_messages: list[dict],
     stream_queue: asyncio.Queue | None,
+    include_plan: bool = False,
+    include_summary: bool = False,
 ) -> tuple[str, str, list[dict]]:
     """Call OpenRouter, streaming reasoning/content chunks to stream_queue if present."""
     headers = {
@@ -73,7 +75,11 @@ async def call_openrouter_streaming(
     payload = {
         "model": model,
         "messages": openai_messages,
-        "tools": get_tools_schema(get_sandbox_engine().name),
+        "tools": get_tools_schema(
+            get_sandbox_engine().name,
+            include_plan=include_plan,
+            include_summary=include_summary,
+        ),
         "stream": stream_queue is not None,
     }
     # Request reasoning explicitly if the provider/model supports it
@@ -172,3 +178,31 @@ async def call_openrouter_streaming(
             reasoning = msg.get("reasoning_content") or msg.get("reasoning") or ""
             tcs = msg.get("tool_calls") or []
             return content, reasoning, tcs
+
+
+async def call_openrouter_direct(
+    api_key: str,
+    base_url: str,
+    model: str,
+    openai_messages: list[dict],
+    temperature: float = 0.2,
+) -> str:
+    """Make a simple, direct, non-streaming completion call to OpenRouter without inject tools."""
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost",
+        "X-Title": "RPG Agent Proxy",
+    }
+    payload = {
+        "model": model,
+        "messages": openai_messages,
+        "temperature": temperature,
+    }
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(base_url, json=payload, headers=headers)
+        if response.status_code >= 400:
+            raise RuntimeError(f"OpenRouter error: {response.status_code} - {response.text}")
+        res_json = response.json()
+        return res_json["choices"][0]["message"].get("content") or ""
+

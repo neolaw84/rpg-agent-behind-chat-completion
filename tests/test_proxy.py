@@ -73,7 +73,7 @@ def test_normal_flow_and_persistence(mock_run, client, auth_headers, tmp_path, e
 
             # Verify that state was written to disk
             store = SessionStateStore(session_id, tmp_path)
-            assert store.get_before_state(turn_key) == {"gold": 100}
+            assert store.get_before_state(turn_key)["state"] == {"gold": 100}
 
 
 @pytest.mark.parametrize("engine_name", ["v8", "python"])
@@ -122,7 +122,7 @@ def test_cache_miss_handling(mock_run, client, auth_headers, tmp_path, engine_na
             turn_key = m.group(2)
 
             store = SessionStateStore(session_id, tmp_path)
-            assert store.get_before_state(turn_key) == {"quest": "active"}
+            assert store.get_before_state(turn_key)["state"] == {"quest": "active"}
 
 
 @pytest.mark.parametrize("engine_name", ["v8", "python"])

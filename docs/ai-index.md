@@ -55,8 +55,18 @@ src/rpg_agent/
 ```
 
 ### Configuration Files
-* **[configs.yaml](file:///home/neolaw/projects/rpg-agent-behind-chat-completion/configs.yaml)**: Preserves state limits (`num_states_to_track`), sandbox timeout limits (`timeout_seconds`), LangGraph limits (`max_iterations`), and LLM endpoints/models.
+* **[configs.yaml](file:///home/neolaw/projects/rpg-agent-behind-chat-completion/configs.yaml)**: Preserves state limits (`num_states_to_track`), sandbox timeout limits (`timeout_seconds`), LangGraph limits (`max_iterations`), LLM endpoints/models, and narrative trigger/orchestration parameters. See [docs/configurations.md](file:///home/neolaw/projects/rpg-agent-behind-chat-completion/docs/configurations.md) for a detailed player-facing settings guide.
 * **[pyproject.toml](file:///home/neolaw/projects/rpg-agent-behind-chat-completion/pyproject.toml)**: Defines package dependency specifications and Hatch building config.
+
+### Supported Environment Variables
+Only the following environment variables are supported for configuration:
+* `OPENROUTER_API_KEY`: Secret API key for the completions provider (required).
+* `RPG_AGENT_PROXY_KEY`: Custom password/API key for authenticated proxy clients (optional).
+* `OPENROUTER_BASE_URL`: Completion endpoint URL override (optional).
+* `DEFAULT_MODEL`: Default model fallback (optional).
+* `RPG_AGENT_INCLUDE_REASONING`: Enable/disable reasoning content payloads (optional).
+
+*All other settings must be configured strictly inside `configs.yaml`.*
 
 ---
 

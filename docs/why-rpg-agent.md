@@ -24,12 +24,14 @@ RPGs require math—calculating modifiers, armor class, damage reduction, attrib
 
 ---
 
-## 3. Persistent Character State & Inventory (FIFO State Store)
-In standard roleplay chats, the LLM has to remember the player's character sheet, health, inventory, and location inside its context window. As the chat gets longer, the LLM starts to forget details, lose track of inventory, or resurrect dead enemies.
+## 3. Structured Multi-Dimensional Session State
+In standard roleplay chats, the LLM has to remember the player's character sheet, inventory, plot checklist, story summaries, and secret mechanics. As the context gets longer, the LLM starts to forget details, lose track of items, deviate from narrative paths, or let secret mechanics slip.
 
-**The RPG Agent Solution**: The proxy maintains a structured **Session State**. Every time a turn occurs, it saves the current state (health, inventory, buffs) in a local JSON database. 
-* On each turn, the state is injected into the LLM's prompt.
-* If the LLM updates a stat (like taking 5 damage), the proxy saves the updated stat so it carries over to the next turn automatically.
+**The RPG Agent Solution**: The proxy maintains a structured **Session State** split into four specialized components:
+* **`state`**: The public, user-defined game state (health, items, attributes) read and mutated by sandbox scripts.
+* **`plan`**: A checklist of narrative goals and NPC schedules, keeping the story structured across turns.
+* **`summary`**: A rolling narrative summary appended at intervals (periodically or probabilistically) to preserve long-term continuity.
+* **`hidden_state`**: Secret parameters hidden from the player but visible to the LLM (e.g., status effects, NPC dispositions), allowing the LLM to describe their consequences organically without exposing their mechanics.
 
 ---
 

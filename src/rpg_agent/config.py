@@ -36,13 +36,40 @@ def _load_config() -> dict:
     return {}
 
 _cfg = _load_config()
-_state_cfg     = _cfg.get("state", {})
-_sandbox_cfg   = _cfg.get("sandbox", {})
-_langgraph_cfg = _cfg.get("langgraph", {})
+_state_cfg         = _cfg.get("state", {})
+_sandbox_cfg       = _cfg.get("sandbox", {})
+_langgraph_cfg     = _cfg.get("langgraph", {})
+_orchestration_cfg = _cfg.get("orchestration", {})
 
-NUM_STATES_TO_TRACK: int = int(_state_cfg.get("num_states_to_track", 8))
-SANDBOX_TIMEOUT: float = float(_sandbox_cfg.get("timeout_seconds", 2.0))
+NUM_STATES_TO_TRACK: int = int(_state_cfg.get("num_states_to_track", 32))
+SANDBOX_TIMEOUT: float = float(_sandbox_cfg.get("timeout_seconds", 8.0))
 MAX_ITERATIONS: int = int(_langgraph_cfg.get("max_iterations", 5))
+
+# Orchestration Configuration
+PLAN_SUMMARY_GAP: int = int(_orchestration_cfg.get("plan_summary_gap", 1))
+_plan_cfg = _orchestration_cfg.get("plan", {})
+PLAN_TRIGGER_TYPE: str = _plan_cfg.get("trigger_type", "periodic")
+PLAN_INTERVAL_TURNS: int = int(_plan_cfg.get("interval_turns", 10))
+PLAN_TRIGGER_PROBABILITY: float = float(_plan_cfg.get("trigger_probability", 0.10))
+PLAN_BUNDLE_LLM: bool = bool(_plan_cfg.get("bundle_llm", True))
+_plan_llm_cfg = _plan_cfg.get("llm", {})
+PLAN_MODEL: str = _plan_llm_cfg.get("model", "google/gemini-3.5-flash")
+PLAN_BASE_URL: str = _plan_llm_cfg.get("base_url") or "https://openrouter.ai/api/v1/chat/completions"
+PLAN_INCLUDE_REASONING: bool = bool(_plan_llm_cfg.get("include_reasoning", True))
+PLAN_TEMPERATURE: float = float(_plan_llm_cfg.get("temperature", 0.2))
+
+_summary_cfg = _orchestration_cfg.get("summary", {})
+SUMMARY_TRIGGER_TYPE: str = _summary_cfg.get("trigger_type", "periodic")
+SUMMARY_INTERVAL_TURNS: int = int(_summary_cfg.get("interval_turns", 10))
+SUMMARY_TRIGGER_PROBABILITY: float = float(_summary_cfg.get("trigger_probability", 0.10))
+SUMMARY_BUNDLE_LLM: bool = bool(_summary_cfg.get("bundle_llm", True))
+SUMMARY_TARGET_WORDS: int = int(_summary_cfg.get("summary_target_words", 200))
+_summary_llm_cfg = _summary_cfg.get("llm", {})
+SUMMARY_MODEL: str = _summary_llm_cfg.get("model", "google/gemini-3.5-flash")
+SUMMARY_BASE_URL: str = _summary_llm_cfg.get("base_url") or "https://openrouter.ai/api/v1/chat/completions"
+SUMMARY_INCLUDE_REASONING: bool = bool(_summary_llm_cfg.get("include_reasoning", True))
+SUMMARY_TEMPERATURE: float = float(_summary_llm_cfg.get("temperature", 0.2))
+
 
 # Resolve STATE_STORAGE_DIR
 _storage_dir_str = _state_cfg.get("storage_dir", "data/states")
@@ -56,9 +83,8 @@ _llm_cfg = _cfg.get("llm", {})
 
 _env_base_url = os.environ.get("OPENROUTER_BASE_URL")
 OPENROUTER_BASE_URL = _env_base_url if _env_base_url else _llm_cfg.get("base_url") or "https://openrouter.ai/api/v1/chat/completions"
-
 _env_default_model = os.environ.get("DEFAULT_MODEL")
-DEFAULT_MODEL = _env_default_model if _env_default_model else _llm_cfg.get("default_model") or "google/gemini-flash-1.5"
+DEFAULT_MODEL = _env_default_model if _env_default_model else _llm_cfg.get("default_model") or "google/gemini-3.5-flash"
 
 _env_include_reasoning = os.environ.get("RPG_AGENT_INCLUDE_REASONING")
 if _env_include_reasoning is not None and _env_include_reasoning != "":

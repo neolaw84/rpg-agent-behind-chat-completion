@@ -26,6 +26,23 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _migrate_state(state_dict: dict[str, Any]) -> dict[str, Any]:
+    """Migrate state to the 4-element structure (state, plan, summary, hidden_state) if needed."""
+    if any(k in state_dict for k in ("state", "plan", "summary", "hidden_state")):
+        return {
+            "state": state_dict.get("state", {}),
+            "plan": state_dict.get("plan", []),
+            "summary": state_dict.get("summary", ""),
+            "hidden_state": state_dict.get("hidden_state", {}),
+        }
+    return {
+        "state": state_dict,
+        "plan": [],
+        "summary": "",
+        "hidden_state": {},
+    }
+
+
 class SessionStateStore:
     """Load, update, and persist a single session's LRU state store."""
 
@@ -70,7 +87,7 @@ class SessionStateStore:
             KeyError: If ``prev_turn_key`` is given but not found in the store.
         """
         if prev_turn_key is None:
-            return {}
+            return _migrate_state({})
         if prev_turn_key not in self._data:
             raise KeyError(
                 f"turn_key '{prev_turn_key}' not found in session '{self.session_id}'. "
@@ -81,7 +98,7 @@ class SessionStateStore:
         val = self._data.pop(prev_turn_key)
         self._data[prev_turn_key] = val
         self._save()
-        return dict(val.get("after", {}))
+        return _migrate_state(val.get("after", {}))
 
     def save_turn(
         self,
@@ -92,7 +109,10 @@ class SessionStateStore:
         """Persist a completed turn's before/after state, pruning if needed."""
         if turn_key in self._data:
             del self._data[turn_key]
-        self._data[turn_key] = {"before": before_state, "after": after_state}
+        self._data[turn_key] = {
+            "before": _migrate_state(before_state),
+            "after": _migrate_state(after_state),
+        }
         # Prune oldest entries if we exceed the LRU limit.
         while len(self._data) > self.max_size:
             oldest_key = next(iter(self._data))
