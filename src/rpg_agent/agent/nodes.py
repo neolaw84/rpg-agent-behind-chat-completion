@@ -64,7 +64,7 @@ def _build_llm_node(
             bundle_summary_fired = False
 
         # 1. Inject the Dynamic System Instruction warning the LLM about the remaining budget
-        rem_iterations = max_iterations - state["iteration_count"]
+        rem_iterations = max(0, max_iterations - state["iteration_count"] - 1)
         current_rpg_state = state_container.get("rpg_state", {})
         turn_number = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
 

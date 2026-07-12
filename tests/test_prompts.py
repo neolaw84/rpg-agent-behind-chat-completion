@@ -368,5 +368,59 @@ def test_update_plan_status():
     assert plan[1]["status"] == "abandoned"
 
 
+@pytest.mark.asyncio
+@patch("rpg_agent.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
+async def test_llm_node_remaining_iterations(mock_streaming):
+    from unittest.mock import patch, AsyncMock
+    from langchain_core.messages import HumanMessage
+    from rpg_agent.agent.graph import _build_llm_node, AgentState
+    from langchain_core.runnables import RunnableConfig
+
+    mock_streaming.return_value = ("GM response", None, [])
+
+    messages = [HumanMessage(content="user message")]
+
+    state_container = {"rpg_state": {}}
+    llm_node_fn = _build_llm_node(
+        api_key="fake",
+        base_url="fake",
+        model="fake",
+        max_iterations=5,
+        sandbox_timeout=2.0,
+        state_container=state_container
+    )
+
+    config: RunnableConfig = {"configurable": {}}
+
+    # Test iteration 0 (1st run) -> rem_iterations should be 4
+    state_0: AgentState = {
+        "messages": messages,
+        "rpg_state": {},
+        "sandbox_timeout": 2.0,
+        "iteration_count": 0
+    }
+    with patch("rpg_agent.agent.graph.get_system_instruction") as mock_get_instruction:
+        mock_get_instruction.return_value = "System Prompt"
+        await llm_node_fn(state_0, config)
+        kwargs = mock_get_instruction.call_args[1]
+        assert kwargs["rem_iterations"] == 4
+        assert kwargs["current_iteration"] == 1
+
+    # Test iteration 4 (5th run, final) -> rem_iterations should be 0
+    state_4: AgentState = {
+        "messages": messages,
+        "rpg_state": {},
+        "sandbox_timeout": 2.0,
+        "iteration_count": 4
+    }
+    with patch("rpg_agent.agent.graph.get_system_instruction") as mock_get_instruction:
+        mock_get_instruction.return_value = "System Prompt"
+        await llm_node_fn(state_4, config)
+        kwargs = mock_get_instruction.call_args[1]
+        assert kwargs["rem_iterations"] == 0
+        assert kwargs["current_iteration"] == 5
+
+
+
 
 
