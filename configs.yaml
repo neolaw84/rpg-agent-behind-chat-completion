@@ -3,24 +3,24 @@
 
 state:
   # Number of recent turns to retain in the FIFO session store.
-  num_states_to_track: 128
+  num_states_to_track: 32
   # Directory where per-session JSON files are written (gitignored).
   storage_dir: "data/states"
 
 sandbox:
   # Wall-clock timeout (seconds) for each code execution inside the sandbox.
-  timeout_seconds: 12.0
+  timeout_seconds: 8.0
 
 langgraph:
   # Maximum LLM ↔ Tool round-trips per request before the graph is forced
-  # to stop.  Set to 5 so a stuck loop cannot spin indefinitely.
-  max_iterations: 5
+  # to stop.  Set to 6 so a stuck loop cannot spin indefinitely.
+  max_iterations: 6
 
 llm:
   # The full completions API endpoint URL.
   base_url: "https://openrouter.ai/api/v1/chat/completions"
   # Default model fallback if not specified in the payload.
-  default_model: "google/gemini-flash-1.5"
+  default_model: "google/gemini-3.5-flash"
   # Whether to explicitly request reasoning (useful for OpenRouter).
   include_reasoning: true
   # Optional reasoning format. Supported: Open-Router, OpenAI, Gemini, Anthropic, X.AI, Z.AI, DeepSeek, custom.
@@ -32,5 +32,34 @@ llm:
   #   extra_body:
   #     thinking:
   #       type: "enabled"
+
+# Configuration for plan and summary updates
+orchestration:
+  plan_summary_gap: 1
+  plan:
+    # Trigger configurations: "periodic", "probabilistic", or "disabled"
+    trigger_type: "periodic"
+    interval_turns:  8              # k = 10 turns
+    trigger_probability: 0.10       # p = 0.10
+    bundle_llm: true                # If true, runs inline using main LLM tool calls. If false, runs in separate node.
+    llm:
+      model: "google/gemini-3.5-flash"
+      base_url: "https://openrouter.ai/api/v1/chat/completions"
+      include_reasoning: true
+      temperature: 0.9
+
+  summary:
+    # Trigger configurations: "periodic", "probabilistic", or "disabled"
+    trigger_type: "periodic"
+    interval_turns:  8              # k = 10 turns
+    trigger_probability: 0.10       # p = 0.10
+    bundle_llm: true                # If true, runs inline using main LLM tool calls. If false, runs in separate node.
+    summary_target_words: 200
+    llm:
+      model: "google/gemini-3.5-flash"
+      base_url: "https://openrouter.ai/api/v1/chat/completions"
+      include_reasoning: true
+      temperature: 0.9
+
 
 

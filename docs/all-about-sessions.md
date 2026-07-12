@@ -1,6 +1,11 @@
 # All About Sessions
 
-In the RPG Agent Proxy, a **Session** holds the persistent game state (such as attributes, inventory items, health points, and history) for a specific chat or character. 
+In the RPG Agent Proxy, a **Session** holds the persistent game state for a specific chat or character. A session state is structured into four distinct components:
+
+* **`state`**: The dynamic, user-defined game state (e.g. inventory, character stats, location) that is read and mutated by sandbox code.
+* **`plan`**: The narrative progression checklist of upcoming goals and NPC plans.
+* **`summary`**: The rolling story summary of events that have occurred so far (appended periodically or probabilistically).
+* **`hidden_state`**: Mechanistic variables hidden from the player but visible to the LLM (e.g. status effect durations, secret parameters).
 
 This document explains how session IDs are resolved and how you can manage (CRUD) active sessions using the proxy's built-in API endpoints.
 
@@ -62,26 +67,66 @@ Lists all active session IDs that currently have state files stored on disk.
   }
   ```
 
-### 2. Reset Session History (Update/Clear)
+### 2. Get Session Details (Read Single)
+Returns the complete history and current 4-element state for a specific session.
+* **Method**: `GET`
+* **Endpoint**: `/v1/sessions/{session_id}`
+* **Response Example**:
+  ```json
+  {
+    "session_id": "campaign_1",
+    "current_state": {
+      "state": {
+        "gold": 100,
+        "hp": 95
+      },
+      "plan": ["find dungeon key"],
+      "summary": "The party entered the dungeon.",
+      "hidden_state": {
+        "poison_turns": 3
+      }
+    },
+    "turn_count": 1,
+    "turns": [
+      {
+        "turn_key": "abc123xyz...",
+        "before": {
+          "state": {},
+          "plan": [],
+          "summary": "",
+          "hidden_state": {}
+        },
+        "after": {
+          "state": {"gold": 100, "hp": 95},
+          "plan": ["find dungeon key"],
+          "summary": "The party entered the dungeon.",
+          "hidden_state": {"poison_turns": 3}
+        }
+      }
+    ]
+  }
+  ```
+
+### 3. Reset Session History (Update/Clear)
 Clears the turn history for a session, effectively wiping its state cache while retaining the session ID itself.
 * **Method**: `POST`
 * **Endpoint**: `/v1/sessions/{session_id}/reset`
 * **Response Example**:
   ```json
   {
-    "status": "reset",
-    "session_id": "campaign_1"
+    "status": "ok",
+    "message": "Session campaign_1 has been reset."
   }
   ```
 
-### 3. Delete Session (Delete)
+### 4. Delete Session (Delete)
 Completely deletes the session state file from disk. The next request with this session ID will start from a cold start (empty state).
 * **Method**: `DELETE`
 * **Endpoint**: `/v1/sessions/{session_id}`
 * **Response Example**:
   ```json
   {
-    "status": "deleted",
-    "session_id": "campaign_1"
+    "status": "ok",
+    "message": "Session campaign_1 deleted."
   }
   ```

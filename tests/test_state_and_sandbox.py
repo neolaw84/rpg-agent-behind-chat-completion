@@ -23,7 +23,12 @@ def tmp_store(tmp_path):
 
 
 def test_first_turn_returns_empty_state(tmp_store):
-    assert tmp_store.get_before_state(None) == {}
+    assert tmp_store.get_before_state(None) == {
+        "state": {},
+        "plan": [],
+        "summary": "",
+        "hidden_state": {},
+    }
 
 
 def test_save_and_reload(tmp_path):
@@ -31,7 +36,12 @@ def test_save_and_reload(tmp_path):
     store.save_turn("key1", {"hp": 100}, {"hp": 90})
 
     store2 = SessionStateStore("s1", tmp_path, max_size=8)
-    assert store2.get_before_state("key1") == {"hp": 90}
+    assert store2.get_before_state("key1") == {
+        "state": {"hp": 90},
+        "plan": [],
+        "summary": "",
+        "hidden_state": {},
+    }
 
 
 def test_missing_key_raises(tmp_store):
@@ -45,14 +55,34 @@ def test_lru_eviction(tmp_path):
     store.save_turn("k2", {}, {"a": 2})
     store.save_turn("k3", {}, {"a": 3})
     # Access k1 so it becomes the most recently used (MRU)
-    assert store.get_before_state("k1") == {"a": 1}
+    assert store.get_before_state("k1") == {
+        "state": {"a": 1},
+        "plan": [],
+        "summary": "",
+        "hidden_state": {},
+    }
     # Adding a 4th should evict k2 (LRU), not k1 (accessed) or k3 (newer)
     store.save_turn("k4", {}, {"a": 4})
     with pytest.raises(KeyError, match="not found"):
         store.get_before_state("k2")
-    assert store.get_before_state("k1") == {"a": 1}
-    assert store.get_before_state("k3") == {"a": 3}
-    assert store.get_before_state("k4") == {"a": 4}
+    assert store.get_before_state("k1") == {
+        "state": {"a": 1},
+        "plan": [],
+        "summary": "",
+        "hidden_state": {},
+    }
+    assert store.get_before_state("k3") == {
+        "state": {"a": 3},
+        "plan": [],
+        "summary": "",
+        "hidden_state": {},
+    }
+    assert store.get_before_state("k4") == {
+        "state": {"a": 4},
+        "plan": [],
+        "summary": "",
+        "hidden_state": {},
+    }
 
 
 def test_reset_clears_state(tmp_path):
@@ -60,7 +90,12 @@ def test_reset_clears_state(tmp_path):
     store.save_turn("k1", {}, {"x": 1})
     store.reset()
     store2 = SessionStateStore("s1", tmp_path, max_size=8)
-    assert store2.get_before_state(None) == {}
+    assert store2.get_before_state(None) == {
+        "state": {},
+        "plan": [],
+        "summary": "",
+        "hidden_state": {},
+    }
 
 
 def test_delete_removes_file(tmp_path):

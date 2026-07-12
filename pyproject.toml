@@ -38,3 +38,13 @@ rpg-agent-proxy = "rpg_agent.proxy:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rpg_agent"]
+
+[tool.pyright]
+venvPath = "."
+venv = "venv"
+extraPaths = ["src"]
+
+[tool.pyrefly]
+search-path = ["src"]
+infer-with-first-use = false
+
