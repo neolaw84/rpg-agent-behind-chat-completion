@@ -214,8 +214,12 @@
     <aside id="sidebar">
       <div class="sidebar-header">
         Sessions
-        <button id="btn-refresh-sessions" class="btn btn-ghost btn-sm">&#8635;</button>
+        <div class="flex-row" style="gap: 4px;">
+          <button id="btn-import-session" class="btn btn-ghost btn-sm" title="Import Session">📥</button>
+          <button id="btn-refresh-sessions" class="btn btn-ghost btn-sm">&#8635;</button>
+        </div>
       </div>
+      <input type="file" id="import-file-input" accept=".json" class="hidden" />
       <div id="session-list">
         <div class="session-empty">Loading sessions&#8230;</div>
       </div>
@@ -259,6 +263,7 @@
         <div class="panel-header">
           <div class="panel-title" id="session-panel-title">&#128194; Session Inspector</div>
           <div class="flex-row hidden" id="session-actions">
+            <button id="btn-export-session" class="btn btn-ghost btn-sm">📥 Export</button>
             <button id="btn-reset-session"  class="btn btn-warning btn-sm">&#8635; Reset</button>
             <button id="btn-delete-session" class="btn btn-danger  btn-sm">&#10005; Delete</button>
           </div>
@@ -476,6 +481,88 @@ function deleteSession() {
   });
 }
 
+function exportSession() {
+  if (!_currentSession) return;
+  apiFetch('/v1/sessions/' + encodeURIComponent(_currentSession) + '/export').then(function(res) {
+    if (!res.ok) { throw new Error('Failed to export session data.'); }
+    return res.json();
+  }).then(function(data) {
+    var blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = _currentSession + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Session "' + _currentSession + '" exported successfully.', 'ok');
+  }).catch(function(e) {
+    if (e.message !== 'Unauthorized') {
+      showToast('Export failed: ' + e.message, 'err');
+    }
+  });
+}
+
+function triggerImport() {
+  document.getElementById('import-file-input').click();
+}
+
+function handleImportFile(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data = JSON.parse(e.target.result);
+      var defaultSessionId = file.name.replace(/\.json$/i, '');
+      var sessionId = prompt('Enter a Session ID to import as:', defaultSessionId);
+      if (!sessionId) return;
+      sessionId = sessionId.trim();
+      if (!sessionId) {
+        showToast('Invalid Session ID.', 'err');
+        return;
+      }
+      
+      var existingItem = document.getElementById('si-' + sessionId);
+      if (existingItem) {
+        showConfirm('Overwrite Session', 'A session named "' + sessionId + '" already exists. Do you want to overwrite it?', function() {
+          sendImportRequest(sessionId, data);
+        });
+      } else {
+        sendImportRequest(sessionId, data);
+      }
+    } catch (err) {
+      showToast('Invalid JSON file: ' + err.message, 'err');
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = ''; // Reset
+}
+
+function sendImportRequest(sessionId, data) {
+  apiFetch('/v1/sessions/' + encodeURIComponent(sessionId) + '/import', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  }).then(function(res) {
+    if (!res.ok) {
+      return res.json().then(function(err) {
+        throw new Error(err.detail || 'Import failed.');
+      });
+    }
+    return res.json();
+  }).then(function(resData) {
+    showToast('Session "' + sessionId + '" imported successfully.', 'ok');
+    loadSessions();
+    setTimeout(function() { selectSession(sessionId); }, 150);
+  }).catch(function(e) {
+    if (e.message !== 'Unauthorized') {
+      showToast('Import failed: ' + e.message, 'err');
+    }
+  });
+}
+
 // ── Init ──────────────────────────────────────────────────────────────
 function onConnected() { loadStatus(); loadSessions(); }
 
@@ -490,6 +577,9 @@ document.getElementById('auth-key-input').onkeydown = function(e) {
 document.getElementById('btn-refresh-status').onclick   = loadStatus;
 document.getElementById('btn-refresh-sessions').onclick = loadSessions;
 document.getElementById('btn-logout').onclick = function() { showAuth(); };
+document.getElementById('btn-export-session').onclick  = exportSession;
+document.getElementById('btn-import-session').onclick   = triggerImport;
+document.getElementById('import-file-input').onchange   = handleImportFile;
 document.getElementById('btn-reset-session').onclick    = resetSession;
 document.getElementById('btn-delete-session').onclick   = deleteSession;
 

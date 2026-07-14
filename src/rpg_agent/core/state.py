@@ -137,6 +137,37 @@ class SessionStateStore:
             logger.info("Session %s deleted.", self.session_id)
         self._data = {}
 
+    def import_data(self, data: dict[str, Any]) -> None:
+        """Validate structure, normalize states, and save imported data to disk."""
+        if not isinstance(data, dict):
+            raise ValueError("Imported data must be a JSON object.")
+
+        validated_data: dict[str, dict[str, Any]] = {}
+        for turn_key, turn_info in data.items():
+            if not isinstance(turn_key, str) or len(turn_key) != 24:
+                raise ValueError(f"Invalid turn key '{turn_key}': must be a 24-character string.")
+
+            if not isinstance(turn_info, dict):
+                raise ValueError(f"Value for turn '{turn_key}' must be a JSON object.")
+
+            if "before" not in turn_info or "after" not in turn_info:
+                raise ValueError(f"Turn '{turn_key}' must contain both 'before' and 'after' keys.")
+
+            before_val = turn_info["before"]
+            after_val = turn_info["after"]
+
+            if not isinstance(before_val, dict) or not isinstance(after_val, dict):
+                raise ValueError(f"The 'before' and 'after' properties of turn '{turn_key}' must be JSON objects.")
+
+            validated_data[turn_key] = {
+                "before": _migrate_state(before_val),
+                "after": _migrate_state(after_val),
+            }
+
+        self._data = validated_data
+        self._save()
+        logger.info("Session %s successfully imported.", self.session_id)
+
     # ------------------------------------------------------------------
     # Class-level helpers
     # ------------------------------------------------------------------

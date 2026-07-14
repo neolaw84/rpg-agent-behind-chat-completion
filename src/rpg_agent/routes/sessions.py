@@ -57,3 +57,22 @@ def delete_session(session_id: str):
     store.delete()
     return {"status": "ok", "message": f"Session {session_id} deleted."}
 
+@router.get("/sessions/{session_id}/export")
+def export_session(session_id: str):
+    """Return the raw internal dictionary for a session to be exported."""
+    store = SessionStateStore(session_id, STATE_STORAGE_DIR)
+    if not store._data:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found or has no state.")
+    return store._data
+
+@router.post("/sessions/{session_id}/import")
+def import_session(session_id: str, data: dict):
+    """Import and validate raw session dictionary."""
+    store = SessionStateStore(session_id, STATE_STORAGE_DIR)
+    try:
+        store.import_data(data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "ok", "message": f"Session {session_id} imported."}
+
+
