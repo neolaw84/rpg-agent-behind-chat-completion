@@ -33,7 +33,7 @@ from rpg_agent.core.session import (
     resolve_session_id,
     strip_proxy_annotations,
 )
-from rpg_agent.core.state import SessionStateStore
+from rpg_agent.core.state import BaseSessionStorage, get_session_storage
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +129,7 @@ async def _stream_generator(
     turn_key: str,
     model: str,
     cache_miss: bool,
-    store: SessionStateStore,
+    store: BaseSessionStorage,
     before_state: dict[str, Any],
 ):
     """Consume the agent stream queue and yield SSE-formatted bytes.
@@ -217,10 +217,10 @@ async def proxy_chat_completions(
     )
 
     # --- Load session state ---
-    store = SessionStateStore(
+    store = get_session_storage(
         session_id=resolved_sid,
-        storage_dir=STATE_STORAGE_DIR,
         max_size=NUM_STATES_TO_TRACK,
+        storage_dir=STATE_STORAGE_DIR,
     )
 
     is_first_turn = len(messages) <= 2

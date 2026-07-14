@@ -18,10 +18,12 @@ from rpg_agent.agent.nodes import (
     _build_llm_node,
     _build_summary_node,
     _build_plan_node,
+    _build_cleanup_node,
     _build_tool_node,
     _should_continue,
     _route_start,
     _route_summary_next,
+    _route_plan_next,
     _convert_messages,
 )
 
@@ -52,21 +54,29 @@ def build_graph(
     graph = StateGraph(AgentState)  # type: ignore[arg-type]
     graph.add_node("summary", _build_summary_node(api_key, state_container))
     graph.add_node("plan", _build_plan_node(api_key, state_container))
+    graph.add_node("cleanup", _build_cleanup_node(api_key, state_container, sandbox_timeout))
     graph.add_node("llm", _build_llm_node(api_key, base_url, model, max_iterations, sandbox_timeout, state_container))
     graph.add_node("tools", _build_tool_node(tools))
 
     graph.set_conditional_entry_point(_route_start, {
         "summary": "summary",
         "plan": "plan",
+        "cleanup": "cleanup",
         "llm": "llm",
     })
 
     graph.add_conditional_edges("summary", _route_summary_next, {
         "plan": "plan",
+        "cleanup": "cleanup",
         "llm": "llm",
     })
 
-    graph.add_edge("plan", "llm")
+    graph.add_conditional_edges("plan", _route_plan_next, {
+        "cleanup": "cleanup",
+        "llm": "llm",
+    })
+
+    graph.add_edge("cleanup", "llm")
     graph.add_conditional_edges("llm", _should_continue(max_iterations))
     graph.add_edge("tools", "llm")
 
@@ -105,7 +115,7 @@ async def run_agent(
         "iteration_count": 0,
     }
 
-    # 1. Decoupled trigger calculations for plan and summary
+    # 1. Decoupled trigger calculations for plan, summary, and cleanup
     from rpg_agent.config import (
         PLAN_TRIGGER_TYPE,
         PLAN_INTERVAL_TURNS,
@@ -116,6 +126,11 @@ async def run_agent(
         SUMMARY_TRIGGER_PROBABILITY,
         SUMMARY_BUNDLE_LLM,
         PLAN_SUMMARY_GAP,
+        CLEANUP_TRIGGER_TYPE,
+        CLEANUP_INTERVAL_TURNS,
+        CLEANUP_TRIGGER_PROBABILITY,
+        CLEANUP_BUNDLE_LLM,
+        PLAN_CLEANUP_GAP,
     )
     import hashlib
     import random
@@ -146,14 +161,29 @@ async def run_agent(
     else:
         summary_fired = ((turn_number + PLAN_SUMMARY_GAP) % SUMMARY_INTERVAL_TURNS == 0)
 
+    # Cleanup Trigger
+    if CLEANUP_TRIGGER_TYPE == "disabled":
+        cleanup_fired = False
+    elif CLEANUP_TRIGGER_TYPE == "probabilistic":
+        msg_contents = [m.get("content") or "" for m in messages]
+        seed = int(hashlib.sha256("\x00".join(msg_contents).encode("utf-8")).hexdigest(), 16)
+        seed_cleanup = seed ^ 0x3333_3333
+        rng = random.Random(seed_cleanup)
+        cleanup_fired = rng.random() < CLEANUP_TRIGGER_PROBABILITY
+    else:
+        cleanup_fired = ((turn_number + PLAN_CLEANUP_GAP) % CLEANUP_INTERVAL_TURNS == 0)
+
     config: RunnableConfig = {"recursion_limit": max_iterations * 2 + 10}
     config["configurable"] = {
         "plan_fired": plan_fired,
         "summary_fired": summary_fired,
+        "cleanup_fired": cleanup_fired,
         "plan_bundle": PLAN_BUNDLE_LLM,
         "summary_bundle": SUMMARY_BUNDLE_LLM,
+        "cleanup_bundle": CLEANUP_BUNDLE_LLM,
         "bundle_plan_fired": plan_fired and PLAN_BUNDLE_LLM,
         "bundle_summary_fired": summary_fired and SUMMARY_BUNDLE_LLM,
+        "bundle_cleanup_fired": cleanup_fired and CLEANUP_BUNDLE_LLM,
     }
     if stream_queue is not None:
         config["configurable"]["stream_queue"] = stream_queue

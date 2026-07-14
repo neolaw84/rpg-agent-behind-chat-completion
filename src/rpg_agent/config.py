@@ -41,12 +41,15 @@ _sandbox_cfg       = _cfg.get("sandbox", {})
 _langgraph_cfg     = _cfg.get("langgraph", {})
 _orchestration_cfg = _cfg.get("orchestration", {})
 
+STORAGE_ENGINE: str = _state_cfg.get("engine", "file").lower()
 NUM_STATES_TO_TRACK: int = int(_state_cfg.get("num_states_to_track", 32))
 SANDBOX_TIMEOUT: float = float(_sandbox_cfg.get("timeout_seconds", 8.0))
 MAX_ITERATIONS: int = int(_langgraph_cfg.get("max_iterations", 5))
 
 # Orchestration Configuration
 PLAN_SUMMARY_GAP: int = int(_orchestration_cfg.get("plan_summary_gap", 1))
+PLAN_CLEANUP_GAP: int = int(_orchestration_cfg.get("plan_cleanup_gap", 2))
+
 _plan_cfg = _orchestration_cfg.get("plan", {})
 PLAN_TRIGGER_TYPE: str = _plan_cfg.get("trigger_type", "periodic")
 PLAN_INTERVAL_TURNS: int = int(_plan_cfg.get("interval_turns", 10))
@@ -69,6 +72,17 @@ SUMMARY_MODEL: str = _summary_llm_cfg.get("model", "google/gemini-3.5-flash")
 SUMMARY_BASE_URL: str = _summary_llm_cfg.get("base_url") or "https://openrouter.ai/api/v1/chat/completions"
 SUMMARY_INCLUDE_REASONING: bool = bool(_summary_llm_cfg.get("include_reasoning", True))
 SUMMARY_TEMPERATURE: float = float(_summary_llm_cfg.get("temperature", 0.2))
+
+_cleanup_cfg = _orchestration_cfg.get("cleanup", {})
+CLEANUP_TRIGGER_TYPE: str = _cleanup_cfg.get("trigger_type", "periodic")
+CLEANUP_INTERVAL_TURNS: int = int(_cleanup_cfg.get("interval_turns", 8))
+CLEANUP_TRIGGER_PROBABILITY: float = float(_cleanup_cfg.get("trigger_probability", 0.10))
+CLEANUP_BUNDLE_LLM: bool = bool(_cleanup_cfg.get("bundle_llm", True))
+_cleanup_llm_cfg = _cleanup_cfg.get("llm", {})
+CLEANUP_MODEL: str = _cleanup_llm_cfg.get("model", "google/gemini-3.5-flash")
+CLEANUP_BASE_URL: str = _cleanup_llm_cfg.get("base_url") or "https://openrouter.ai/api/v1/chat/completions"
+CLEANUP_INCLUDE_REASONING: bool = bool(_cleanup_llm_cfg.get("include_reasoning", True))
+CLEANUP_TEMPERATURE: float = float(_cleanup_llm_cfg.get("temperature", 0.2))
 
 
 # Resolve STATE_STORAGE_DIR
@@ -104,4 +118,13 @@ else:
             _match = v
             break
     REASONING_PAYLOAD = _match if _match is not None else REASONING_FORMATS["Open-Router"]
+
+
+# PostgreSQL Connection Settings (sourced exclusively from environment)
+DATABASE_URL = os.environ.get("DATABASE_URL")
+PGDATABASE = os.environ.get("PGDATABASE")
+PGHOST = os.environ.get("PGHOST")
+PGPASSWORD = os.environ.get("PGPASSWORD")
+PGPORT = os.environ.get("PGPORT")
+PGUSER = os.environ.get("PGUSER")
 

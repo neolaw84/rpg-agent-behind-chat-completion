@@ -2,6 +2,8 @@
 # All paths are relative to the repository root.
 
 state:
+  # Storage engine: "file" (default) or "postgres"
+  engine: "file"
   # Number of recent turns to retain in the FIFO session store.
   num_states_to_track: 32
   # Directory where per-session JSON files are written (gitignored).
@@ -36,6 +38,7 @@ llm:
 # Configuration for plan and summary updates
 orchestration:
   plan_summary_gap: 1
+  plan_cleanup_gap: 2
   plan:
     # Trigger configurations: "periodic", "probabilistic", or "disabled"
     trigger_type: "periodic"
@@ -60,6 +63,18 @@ orchestration:
       base_url: "https://openrouter.ai/api/v1/chat/completions"
       include_reasoning: true
       temperature: 0.9
+
+  cleanup:
+    # Trigger configurations: "periodic", "probabilistic", or "disabled"
+    trigger_type: "periodic"
+    interval_turns:  8
+    trigger_probability: 0.10
+    bundle_llm: true
+    llm:
+      model: "google/gemini-3.5-flash"
+      base_url: "https://openrouter.ai/api/v1/chat/completions"
+      include_reasoning: true
+      temperature: 0.2
 
 
 

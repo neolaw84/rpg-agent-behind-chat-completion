@@ -17,8 +17,9 @@ from rpg_agent.config import (
     NUM_STATES_TO_TRACK,
     SANDBOX_TIMEOUT,
     STATE_STORAGE_DIR,
+    STORAGE_ENGINE,
 )
-from rpg_agent.core.state import SessionStateStore
+from rpg_agent.core.state import list_all_sessions
 
 router = APIRouter(tags=["system"])
 
@@ -92,11 +93,12 @@ async def proxy_status() -> dict:
     return {
         "openrouter_key_set": bool(os.environ.get("OPENROUTER_API_KEY")),
         "sandbox_engine": get_sandbox_engine().name,
+        "storage_engine": STORAGE_ENGINE,
         "state_storage_dir": str(STATE_STORAGE_DIR),
         "num_states_to_track": NUM_STATES_TO_TRACK,
         "sandbox_timeout": SANDBOX_TIMEOUT,
         "max_iterations": MAX_ITERATIONS,
-        "active_sessions_count": len(SessionStateStore.list_sessions(STATE_STORAGE_DIR)),
+        "active_sessions_count": len(list_all_sessions()),
         "public_url": public_url,
         "api_endpoint": f"{public_url}/v1",
     }

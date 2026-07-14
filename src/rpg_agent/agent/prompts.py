@@ -79,6 +79,7 @@ def get_system_instruction(
     engine_name: str = "v8",
     bundle_plan_fired: bool = False,
     bundle_summary_fired: bool = False,
+    bundle_cleanup_fired: bool = False,
     turn_number: int = 1,
 ) -> str:
     """Return the dynamic system instruction for the LLM node."""
@@ -103,6 +104,13 @@ def get_system_instruction(
         summary_turns_val = turn_number - last_summary_turn
         summary_turns_ago = f"{summary_turns_val} turn ago" if summary_turns_val == 1 else f"{summary_turns_val} turns ago"
 
+    last_cleanup_turn = hidden.get("last_cleanup_turn", 0)
+    if last_cleanup_turn == 0:
+        cleanup_turns_ago = f"{turn_number} turns ago (at the start of the game)"
+    else:
+        cleanup_turns_val = turn_number - last_cleanup_turn
+        cleanup_turns_ago = f"{cleanup_turns_val} turn ago" if cleanup_turns_val == 1 else f"{cleanup_turns_val} turns ago"
+
     # 2. Build tasks list
     tasks = []
     if bundle_plan_fired:
@@ -114,6 +122,12 @@ def get_system_instruction(
         tasks.append(
             f"Call the `append_summary` tool during this turn to append a 200-300 word summary "
             f"describing the events that have unfolded since the last update, which was {summary_turns_ago}, into **Summary**."
+        )
+    if bundle_cleanup_fired:
+        tasks.append(
+            f"Call the `execute_code_sandbox` tool to review the global `state` and `hidden_state` objects, "
+            f"cleaning up any expired, redundant, or unnecessary keys/values to keep the variables lean and focused. "
+            f"The last cleanup was {cleanup_turns_ago}."
         )
     tasks.append(
         "Progress the story and event in this role-play using the available tools such as "
@@ -165,7 +179,7 @@ def get_system_instruction(
             "- The Python sandbox has the following libraries available: math, random, json, time, datetime, collections, itertools, functools, re, string. Nothing outside of these libraries is available.\n"
             "  Note: If the sandbox execution fails (due to syntax errors, exceptions, timeouts, or replacing `state` or `hidden_state` with a non-dict), any changes are discarded and the original pre-execution state is fully restored.\n"
             "- **Syntax Rules**:\n"
-            "  - Modify properties directly on the dict objects. Example: `state['party']['warrior']['hp'] -= 10\\nhidden_state['ambush_triggered'] = True`\n"
+            "  - Modify properties directly on the dict objects. Example: `state['party']['warrior']['hp'] -= 10\nhidden_state['ambush_triggered'] = True`\n"
             "  - Do NOT re-declare the `state` or `hidden_state` variables (e.g., do not write `state = ...`).\n"
         )
 
@@ -190,6 +204,14 @@ def get_system_instruction(
             is_bundle=True,
         )
         h2_instruction_blocks += f"\n\n## Creating Summary to Append\n{summary_text}"
+    if bundle_cleanup_fired:
+        cleanup_text = get_cleanup_prompt(
+            state=rpg_state.get("state", {}) if isinstance(rpg_state, dict) else {},
+            hidden_state=rpg_state.get("hidden_state", {}) if isinstance(rpg_state, dict) else {},
+            engine_name=engine_name,
+            is_bundle=True,
+        )
+        h2_instruction_blocks += f"\n\n## Storage Cleanup Required\n{cleanup_text}"
 
     return (
         "[Agent System Instruction]\n\n"
@@ -279,4 +301,39 @@ def get_plan_prompt(
             "Generate an updated checklist of future story goals and NPC plans as a JSON array of objects, "
             "where each object matches the schema: {\"id\": int, \"description\": str, \"status\": str, \"remark\": str}.\n"
             "Output ONLY a valid JSON array of objects. Do not include markdown wraps (like ```json) or explanation."
+        )
+
+
+def get_cleanup_prompt(
+    state: dict = {},
+    hidden_state: dict = {},
+    engine_name: str = "v8",
+    is_bundle: bool = False,
+) -> str:
+    """Return the prompt for the storage cleanup task/node."""
+    lang = "JavaScript" if engine_name == "v8" else "Python"
+    syntax_example = (
+        "delete state.temp_buff; delete hidden_state.expired_quest_flag;"
+        if engine_name == "v8"
+        else "state.pop('temp_buff', None)\nhidden_state.pop('expired_quest_flag', None)"
+    )
+    if is_bundle:
+        return (
+            f"Review the current `state` and `hidden_state` JSON objects. "
+            f"Identify any keys, list elements, or parameters that have expired, are no longer active, "
+            f"or are redundant for the current narrative. Use the `execute_code_sandbox` tool to "
+            f"clean them up. Keep the variables slim and focused only on active/relevant game state."
+        )
+    else:
+        state_str = json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}"
+        hidden_str = json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}"
+        return (
+            f"You are a state optimization utility for an RPG agent.\n"
+            f"Here is the public State:\n```json\n{state_str}\n```\n\n"
+            f"Here is the secret Hidden-State:\n```json\n{hidden_str}\n```\n\n"
+            f"Review these objects and write a {lang} code snippet to remove/delete any "
+            f"expired, redundant, or unnecessary keys or parameters. "
+            f"For example, you can write: `{syntax_example}`.\n\n"
+            f"Output ONLY the raw {lang} code snippet to execute. Do NOT include markdown code blocks, "
+            f"introductory conversational text, or any explanations."
         )

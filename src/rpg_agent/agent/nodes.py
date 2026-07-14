@@ -39,6 +39,7 @@ def _build_llm_node(
         stream_queue = config.get("configurable", {}).get("stream_queue")
         bundle_plan_fired = config.get("configurable", {}).get("bundle_plan_fired", False)
         bundle_summary_fired = config.get("configurable", {}).get("bundle_summary_fired", False)
+        bundle_cleanup_fired = config.get("configurable", {}).get("bundle_cleanup_fired", False)
 
         # Check if the tools have already been invoked in the current turn (since the last user message)
         plan_called = False
@@ -79,6 +80,7 @@ def _build_llm_node(
             engine_name=get_sandbox_engine().name,
             bundle_plan_fired=bundle_plan_fired,
             bundle_summary_fired=bundle_summary_fired,
+            bundle_cleanup_fired=bundle_cleanup_fired,
             turn_number=turn_number,
         )
 
@@ -275,6 +277,73 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any]):
         return {"rpg_state": rpg}
     return plan_node
 
+def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_timeout: float):
+    """Return the Cleanup node callable."""
+    async def cleanup_node(state: AgentState, config: RunnableConfig) -> dict:
+        from rpg_agent.config import (
+            CLEANUP_MODEL,
+            CLEANUP_BASE_URL,
+            CLEANUP_TEMPERATURE,
+        )
+        from rpg_agent.agent.prompts import get_cleanup_prompt
+
+        engine = get_sandbox_engine()
+        rpg = state_container["rpg_state"]
+        current_turn = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
+
+        cleanup_prompt = get_cleanup_prompt(
+            state=rpg.get("state", {}),
+            hidden_state=rpg.get("hidden_state", {}),
+            engine_name=engine.name,
+            is_bundle=False,
+        )
+
+        history_msgs = [{"role": "system", "content": cleanup_prompt}]
+
+        try:
+            import rpg_agent.agent.graph as graph
+            code_response = await graph.call_openrouter_direct(
+                api_key=api_key,
+                base_url=CLEANUP_BASE_URL,
+                model=CLEANUP_MODEL,
+                openai_messages=history_msgs,
+                temperature=CLEANUP_TEMPERATURE,
+            )
+            code = code_response.strip()
+            if code.startswith("```"):
+                code = code.split("\n", 1)[-1]
+                if code.endswith("```"):
+                    code = code.rsplit("```", 1)[0]
+                code = code.strip()
+
+            # Execute sandbox code
+            if isinstance(rpg, dict) and all(k in rpg for k in ("state", "plan", "summary", "hidden_state")):
+                wrapper = {
+                    "state": rpg.get("state", {}),
+                    "hidden_state": rpg.get("hidden_state", {}),
+                }
+                updated, output = engine.execute(code, wrapper, sandbox_timeout)
+                if isinstance(updated, dict) and "state" in updated and "hidden_state" in updated:
+                    rpg["state"] = updated["state"]
+                    rpg["hidden_state"] = updated["hidden_state"]
+                else:
+                    rpg["state"] = updated
+            else:
+                updated, output = engine.execute(code, rpg, sandbox_timeout)
+                state_container["rpg_state"] = updated
+
+            # Record last cleanup turn
+            if "hidden_state" not in rpg or not isinstance(rpg["hidden_state"], dict):
+                rpg["hidden_state"] = {}
+            rpg["hidden_state"]["last_cleanup_turn"] = current_turn
+
+            logger.info("Graph Cleanup node execution complete. Sandbox Output: %s", output or "<none>")
+        except Exception as exc:
+            logger.error("Failed to run cleanup node: %s", exc)
+
+        return {"rpg_state": rpg}
+    return cleanup_node
+
 def _build_tool_node(tools: list):
     """Return the Tool node callable."""
     tool_map = {t.name: t for t in tools}
@@ -333,6 +402,10 @@ def _route_start(state: AgentState, config: RunnableConfig) -> str:
     plan_bundle = config.get("configurable", {}).get("plan_bundle", True)
     if plan_fired and not plan_bundle:
         return "plan"
+    cleanup_fired = config.get("configurable", {}).get("cleanup_fired", False)
+    cleanup_bundle = config.get("configurable", {}).get("cleanup_bundle", True)
+    if cleanup_fired and not cleanup_bundle:
+        return "cleanup"
     return "llm"
 
 def _route_summary_next(state: AgentState, config: RunnableConfig) -> str:
@@ -340,6 +413,17 @@ def _route_summary_next(state: AgentState, config: RunnableConfig) -> str:
     plan_bundle = config.get("configurable", {}).get("plan_bundle", True)
     if plan_fired and not plan_bundle:
         return "plan"
+    cleanup_fired = config.get("configurable", {}).get("cleanup_fired", False)
+    cleanup_bundle = config.get("configurable", {}).get("cleanup_bundle", True)
+    if cleanup_fired and not cleanup_bundle:
+        return "cleanup"
+    return "llm"
+
+def _route_plan_next(state: AgentState, config: RunnableConfig) -> str:
+    cleanup_fired = config.get("configurable", {}).get("cleanup_fired", False)
+    cleanup_bundle = config.get("configurable", {}).get("cleanup_bundle", True)
+    if cleanup_fired and not cleanup_bundle:
+        return "cleanup"
     return "llm"
 
 def _convert_messages(openai_messages: list[dict]) -> list[BaseMessage]:
