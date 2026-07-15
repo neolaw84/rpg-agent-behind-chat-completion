@@ -43,6 +43,9 @@ _orchestration_cfg = _cfg.get("orchestration", {})
 
 STORAGE_ENGINE: str = _state_cfg.get("engine", "file").lower()
 NUM_STATES_TO_TRACK: int = int(_state_cfg.get("num_states_to_track", 32))
+MAX_STRING_LENGTH: int = int(_state_cfg.get("max_string_length", 80))
+MAX_DEPTH: int = int(_state_cfg.get("max_depth", 4))
+MAX_WIDTH: int = int(_state_cfg.get("max_width", 32))
 SANDBOX_TIMEOUT: float = float(_sandbox_cfg.get("timeout_seconds", 8.0))
 MAX_ITERATIONS: int = int(_langgraph_cfg.get("max_iterations", 5))
 

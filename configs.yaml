@@ -8,6 +8,11 @@ state:
   num_states_to_track: 32
   # Directory where per-session JSON files are written (gitignored).
   storage_dir: "data/states"
+  # Programmatic guardrails for state complexity
+  max_string_length: 80
+  max_depth: 4
+  max_width: 32
+
 
 sandbox:
   # Wall-clock timeout (seconds) for each code execution inside the sandbox.

@@ -20,6 +20,37 @@ from rpg_agent.sandbox.sandbox import get_sandbox_engine
 
 logger = logging.getLogger(__name__)
 
+
+class _GraphDelegate:
+    """Helper class to delegate calls to graph.py to maintain test patch compatibility."""
+
+    @staticmethod
+    def get_system_instruction(*args, **kwargs):
+        import rpg_agent.agent.graph as graph
+        return graph.get_system_instruction(*args, **kwargs)
+
+    @staticmethod
+    async def call_openrouter_streaming(*args, **kwargs):
+        import rpg_agent.agent.graph as graph
+        return await graph.call_openrouter_streaming(*args, **kwargs)
+
+    @staticmethod
+    async def call_openrouter_direct(*args, **kwargs):
+        import rpg_agent.agent.graph as graph
+        return await graph.call_openrouter_direct(*args, **kwargs)
+
+
+def _calculate_turns_since_update(current_turn: int, last_update_turn: int) -> tuple[int, str]:
+    """Calculate the number of turns since the last update and format the string representation."""
+    if last_update_turn == 0:
+        turns_val = current_turn
+        turns_since_update = f"{current_turn} turns ago (at the start of the game)"
+    else:
+        turns_val = current_turn - last_update_turn
+        turns_since_update = f"{turns_val} turn ago" if turns_val == 1 else f"{turns_val} turns ago"
+    return turns_val, turns_since_update
+
+
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
     rpg_state: dict[str, Any]
@@ -69,8 +100,7 @@ def _build_llm_node(
         current_rpg_state = state_container.get("rpg_state", {})
         turn_number = sum(1 for m in state["messages"] if isinstance(m, AIMessage)) + 1
 
-        import rpg_agent.agent.graph as graph
-        system_instruction = graph.get_system_instruction(
+        system_instruction = _GraphDelegate.get_system_instruction(
             rpg_state=current_rpg_state,
             sandbox_timeout=sandbox_timeout,
             max_iterations=max_iterations,
@@ -88,8 +118,7 @@ def _build_llm_node(
         openai_msgs.append({"role": "system", "content": system_instruction})
 
         # 2. Call OpenRouter
-        import rpg_agent.agent.graph as graph
-        content, reasoning, tcs = await graph.call_openrouter_streaming(
+        content, reasoning, tcs = await _GraphDelegate.call_openrouter_streaming(
             api_key=api_key,
             base_url=base_url,
             model=model,
@@ -140,12 +169,7 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any]):
         hidden = rpg.get("hidden_state", {}) or {}
         last_summary_turn = hidden.get("last_summary_turn", 0)
 
-        if last_summary_turn == 0:
-            summary_turns_val = current_turn
-            turns_since_update = f"{current_turn} turns ago (at the start of the game)"
-        else:
-            summary_turns_val = current_turn - last_summary_turn
-            turns_since_update = f"{summary_turns_val} turn ago" if summary_turns_val == 1 else f"{summary_turns_val} turns ago"
+        summary_turns_val, turns_since_update = _calculate_turns_since_update(current_turn, last_summary_turn)
 
         range_ref = get_range_reference(state["messages"], summary_turns_val)
         prev_summary = rpg.get("summary", "")
@@ -164,8 +188,7 @@ def _build_summary_node(api_key: str, state_container: dict[str, Any]):
         history_msgs.append({"role": "system", "content": summary_prompt})
 
         try:
-            import rpg_agent.agent.graph as graph
-            summary_delta = await graph.call_openrouter_direct(
+            summary_delta = await _GraphDelegate.call_openrouter_direct(
                 api_key=api_key,
                 base_url=SUMMARY_BASE_URL,
                 model=SUMMARY_MODEL,
@@ -206,12 +229,7 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any]):
         hidden = rpg.get("hidden_state", {}) or {}
         last_plan_turn = hidden.get("last_plan_turn", 0)
 
-        if last_plan_turn == 0:
-            plan_turns_val = current_turn
-            turns_since_update = f"{current_turn} turns ago (at the start of the game)"
-        else:
-            plan_turns_val = current_turn - last_plan_turn
-            turns_since_update = f"{plan_turns_val} turn ago" if plan_turns_val == 1 else f"{plan_turns_val} turns ago"
+        plan_turns_val, turns_since_update = _calculate_turns_since_update(current_turn, last_plan_turn)
 
         range_ref = get_range_reference(state["messages"], plan_turns_val)
         prev_plan = rpg.get("plan", [])
@@ -229,8 +247,7 @@ def _build_plan_node(api_key: str, state_container: dict[str, Any]):
         history_msgs.append({"role": "system", "content": plan_prompt})
 
         try:
-            import rpg_agent.agent.graph as graph
-            plan_response = await graph.call_openrouter_direct(
+            plan_response = await _GraphDelegate.call_openrouter_direct(
                 api_key=api_key,
                 base_url=PLAN_BASE_URL,
                 model=PLAN_MODEL,
@@ -301,8 +318,7 @@ def _build_cleanup_node(api_key: str, state_container: dict[str, Any], sandbox_t
         history_msgs = [{"role": "system", "content": cleanup_prompt}]
 
         try:
-            import rpg_agent.agent.graph as graph
-            code_response = await graph.call_openrouter_direct(
+            code_response = await _GraphDelegate.call_openrouter_direct(
                 api_key=api_key,
                 base_url=CLEANUP_BASE_URL,
                 model=CLEANUP_MODEL,

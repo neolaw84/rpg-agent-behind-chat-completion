@@ -182,51 +182,42 @@ async def _stream_generator(
 
 
 # ---------------------------------------------------------------------------
-# Chat completion endpoint
+# Internal completion execution helpers
 # ---------------------------------------------------------------------------
 
-@router.post("/v1/chat/completions", dependencies=[Depends(require_proxy_key)])
-@router.post("/v1/{session_id}/chat/completions", dependencies=[Depends(require_proxy_key)])
-async def proxy_chat_completions(
-    request: Request,
-    session_id: str | None = None,
-) -> Any:
-    """Proxy a chat completion request through the LangGraph RPG agent."""
-    api_key = _get_api_key()
+def _resolve_session_and_state(
+    explicit_sid: str | None,
+    messages: list[dict],
+    store_max_size: int,
+    storage_dir: Any,
+) -> tuple[str, str, str, str | None, dict[str, Any], bool, BaseSessionStorage]:
+    """Resolve session ID, turn keys, load session storage and state.
 
-    explicit_sid = session_id or request.query_params.get("session_id")
-
-    try:
-        payload: dict[str, Any] = await request.json()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
-
-    messages: list[dict] = payload.get("messages", [])
-    model: str = payload.get("model") or DEFAULT_MODEL
-
-    # --- Session & turn resolution ---
+    Returns:
+        resolved_sid: str
+        sid_method: str
+        turn_key: str
+        prev_turn_key: str | None
+        before_state: dict[str, Any]
+        cache_miss: bool
+        store: BaseSessionStorage
+    """
     resolved_sid, sid_method = resolve_session_id(
         messages, explicit_session_id=explicit_sid
     )
     turn_key = compute_turn_key(resolved_sid, messages)
     prev_turn_key = extract_prev_turn_key(messages)
 
-    logger.info(
-        "Session: %s (via %s) | Turn: %s | Prev: %s",
-        resolved_sid, sid_method, turn_key, prev_turn_key,
-    )
-
-    # --- Load session state ---
     store = get_session_storage(
         session_id=resolved_sid,
-        max_size=NUM_STATES_TO_TRACK,
-        storage_dir=STATE_STORAGE_DIR,
+        max_size=store_max_size,
+        storage_dir=storage_dir,
     )
 
     is_first_turn = len(messages) <= 2
     cache_miss = False
     if is_first_turn:
-        before_state: dict[str, Any] = {}
+        before_state = {}
     else:
         try:
             before_state = store.get_before_state(prev_turn_key)
@@ -239,46 +230,61 @@ async def proxy_chat_completions(
             cache_miss = True
             before_state = {}
 
-    _log_request(request, payload, resolved_sid, sid_method, turn_key, prev_turn_key)
+    return resolved_sid, sid_method, turn_key, prev_turn_key, before_state, cache_miss, store
 
-    # Strip [proxy: ...] annotations from messages before hitting the LLM.
-    # Session/turn resolution has already consumed them above, so it is safe
-    # to remove them now.  This prevents LLMs from echoing the annotation.
-    messages = strip_proxy_annotations(messages)
 
-    is_streaming = payload.get("stream", False)
+async def _handle_streaming_completion(
+    resolved_sid: str,
+    turn_key: str,
+    model: str,
+    messages: list[dict],
+    before_state: dict[str, Any],
+    cache_miss: bool,
+    store: BaseSessionStorage,
+    api_key: str,
+) -> StreamingResponse:
+    """Run the agent asynchronously and return a streaming SSE response."""
+    stream_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
 
-    if is_streaming:
-        stream_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
-
-        agent_task = asyncio.create_task(
-            run_agent(
-                messages=messages,
-                before_state=before_state,
-                api_key=api_key,
-                base_url=OPENROUTER_BASE_URL,
-                model=model,
-                sandbox_timeout=SANDBOX_TIMEOUT,
-                max_iterations=MAX_ITERATIONS,
-                stream_queue=stream_queue,
-            )
+    agent_task = asyncio.create_task(
+        run_agent(
+            messages=messages,
+            before_state=before_state,
+            api_key=api_key,
+            base_url=OPENROUTER_BASE_URL,
+            model=model,
+            sandbox_timeout=SANDBOX_TIMEOUT,
+            max_iterations=MAX_ITERATIONS,
+            stream_queue=stream_queue,
         )
+    )
 
-        return StreamingResponse(
-            _stream_generator(
-                agent_task=agent_task,
-                stream_queue=stream_queue,
-                resolved_sid=resolved_sid,
-                turn_key=turn_key,
-                model=model,
-                cache_miss=cache_miss,
-                store=store,
-                before_state=before_state,
-            ),
-            media_type="text/event-stream",
-        )
+    return StreamingResponse(
+        _stream_generator(
+            agent_task=agent_task,
+            stream_queue=stream_queue,
+            resolved_sid=resolved_sid,
+            turn_key=turn_key,
+            model=model,
+            cache_miss=cache_miss,
+            store=store,
+            before_state=before_state,
+        ),
+        media_type="text/event-stream",
+    )
 
-    # --- Non-streaming ---
+
+async def _handle_non_streaming_completion(
+    resolved_sid: str,
+    turn_key: str,
+    model: str,
+    messages: list[dict],
+    before_state: dict[str, Any],
+    cache_miss: bool,
+    store: BaseSessionStorage,
+    api_key: str,
+) -> JSONResponse:
+    """Run the agent and return a standard JSON chat completion response."""
     try:
         result = await run_agent(
             messages=messages,
@@ -325,3 +331,72 @@ async def proxy_chat_completions(
         resp_payload["choices"][0]["message"]["reasoning_content"] = final_reasoning
 
     return JSONResponse(resp_payload)
+
+
+# Chat completion endpoint
+# ---------------------------------------------------------------------------
+
+@router.post("/v1/chat/completions", dependencies=[Depends(require_proxy_key)])
+@router.post("/v1/{session_id}/chat/completions", dependencies=[Depends(require_proxy_key)])
+async def proxy_chat_completions(
+    request: Request,
+    session_id: str | None = None,
+) -> Any:
+    """Proxy a chat completion request through the LangGraph RPG agent."""
+    api_key = _get_api_key()
+
+    explicit_sid = session_id or request.query_params.get("session_id")
+
+    try:
+        payload: dict[str, Any] = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
+
+    messages: list[dict] = payload.get("messages", [])
+    model: str = payload.get("model") or DEFAULT_MODEL
+
+    # Resolve session and load state
+    (
+        resolved_sid,
+        sid_method,
+        turn_key,
+        prev_turn_key,
+        before_state,
+        cache_miss,
+        store,
+    ) = _resolve_session_and_state(
+        explicit_sid=explicit_sid,
+        messages=messages,
+        store_max_size=NUM_STATES_TO_TRACK,
+        storage_dir=STATE_STORAGE_DIR,
+    )
+
+    _log_request(request, payload, resolved_sid, sid_method, turn_key, prev_turn_key)
+
+    # Strip [proxy: ...] annotations from messages before hitting the LLM.
+    messages = strip_proxy_annotations(messages)
+
+    is_streaming = payload.get("stream", False)
+
+    if is_streaming:
+        return await _handle_streaming_completion(
+            resolved_sid=resolved_sid,
+            turn_key=turn_key,
+            model=model,
+            messages=messages,
+            before_state=before_state,
+            cache_miss=cache_miss,
+            store=store,
+            api_key=api_key,
+        )
+
+    return await _handle_non_streaming_completion(
+        resolved_sid=resolved_sid,
+        turn_key=turn_key,
+        model=model,
+        messages=messages,
+        before_state=before_state,
+        cache_miss=cache_miss,
+        store=store,
+        api_key=api_key,
+    )

@@ -27,9 +27,17 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
         )
 
     def _execute_code_sandbox(code: str) -> str:
+        import copy
+        import rpg_agent.config as config
+        from rpg_agent.sandbox.validation import validate_state_constraints
+
+        # Take a deep copy of the original state to restore on validation failure
+        rpg_copy = copy.deepcopy(state_container["rpg_state"])
+
         rpg = state_container["rpg_state"]
         # If it is the 4-element dict, construct the wrapper for execution
-        if isinstance(rpg, dict) and all(k in rpg for k in ("state", "plan", "summary", "hidden_state")):
+        is_4_element = isinstance(rpg, dict) and all(k in rpg for k in ("state", "plan", "summary", "hidden_state"))
+        if is_4_element:
             wrapper = {
                 "state": rpg.get("state", {}),
                 "hidden_state": rpg.get("hidden_state", {}),
@@ -43,6 +51,49 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
         else:
             updated, output = engine.execute(code, rpg, sandbox_timeout)
             state_container["rpg_state"] = updated
+
+        # Perform post-execution validation checks
+        try:
+            rpg_current = state_container["rpg_state"]
+            if is_4_element:
+                validate_state_constraints(
+                    rpg_current.get("state", {}),
+                    config.MAX_DEPTH,
+                    config.MAX_WIDTH,
+                    config.MAX_STRING_LENGTH,
+                    "state",
+                    1
+                )
+                validate_state_constraints(
+                    rpg_current.get("hidden_state", {}),
+                    config.MAX_DEPTH,
+                    config.MAX_WIDTH,
+                    config.MAX_STRING_LENGTH,
+                    "hidden_state",
+                    1
+                )
+            else:
+                validate_state_constraints(
+                    rpg_current,
+                    config.MAX_DEPTH,
+                    config.MAX_WIDTH,
+                    config.MAX_STRING_LENGTH,
+                    "state",
+                    1
+                )
+        except ValueError as e:
+            # Revert any mutations back to the clean pre-execution copy
+            state_container["rpg_state"] = rpg_copy
+            
+            validation_error_msg = (
+                f"\n--- Sandbox Validation Error ---\n{str(e)}\n"
+                f"Notice: You have wasted one tool call due to this validation failure. Please adjust your state modifications."
+            )
+            output = (output or "").strip()
+            if output:
+                output = f"{output}\n{validation_error_msg}"
+            else:
+                output = validation_error_msg
 
         logger.info("Sandbox executed (%s). Output:\n%s", engine.name, output or "<no output>")
         return output or "(no output)"

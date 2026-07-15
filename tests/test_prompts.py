@@ -64,7 +64,7 @@ def test_get_tools_schema_filtering():
     assert "roll_xdy" in names
     assert "random_int" in names
     assert "update_plan" not in names
-    assert "update_plan_status" not in names
+    assert "update_plan_status" in names
     assert "append_summary" not in names
 
     # Test include plan
@@ -78,7 +78,7 @@ def test_get_tools_schema_filtering():
     schemas = get_tools_schema("v8", include_summary=True)
     names = [s["function"]["name"] for s in schemas]
     assert "update_plan" not in names
-    assert "update_plan_status" not in names
+    assert "update_plan_status" in names
     assert "append_summary" in names
 
     # Test both

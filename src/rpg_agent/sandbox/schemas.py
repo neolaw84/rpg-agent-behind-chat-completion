@@ -87,6 +87,37 @@ def get_tools_schema(
                 "required": ["min_val", "max_val"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_plan_status",
+            "description": "Update the status of plan items by their ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "updates": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "integer",
+                                    "description": "The ID of the plan item to update"
+                                },
+                                "status": {
+                                    "type": "string",
+                                    "enum": ["to-do", "in-progress", "done", "abandoned"]
+                                }
+                            },
+                            "required": ["id", "status"]
+                        },
+                        "description": "List of updates to apply."
+                    }
+                },
+                "required": ["updates"]
+            }
+        }
     }
 ]
 
@@ -128,37 +159,6 @@ def get_tools_schema(
                         }
                     },
                     "required": ["checklist"]
-                }
-            }
-        })
-        tools.append({
-            "type": "function",
-            "function": {
-                "name": "update_plan_status",
-                "description": "Update the status of plan items by their ID.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "updates": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "id": {
-                                        "type": "integer",
-                                        "description": "The ID of the plan item to update"
-                                    },
-                                    "status": {
-                                        "type": "string",
-                                        "enum": ["to-do", "in-progress", "done", "abandoned"]
-                                    }
-                                },
-                                "required": ["id", "status"]
-                            },
-                            "description": "List of updates to apply."
-                        }
-                    },
-                    "required": ["updates"]
                 }
             }
         })

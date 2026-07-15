@@ -5,6 +5,23 @@ import re
 from typing import Any, Sequence
 from langchain_core.messages import BaseMessage, AIMessage, SystemMessage
 from rpg_agent.config import SUMMARY_TARGET_WORDS
+from rpg_agent.agent.prompt_constants import (
+    UPDATE_PLAN_TASK_TEMPLATE,
+    APPEND_SUMMARY_TASK_TEMPLATE,
+    CLEANUP_TASK_TEMPLATE,
+    PROGRESS_STORY_TASK,
+    STATE_SECTION_4_ELEMENT,
+    STATE_SECTION_BASIC,
+    SANDBOX_INFO_V8,
+    SANDBOX_INFO_PYTHON,
+    SYSTEM_INSTRUCTION_TEMPLATE,
+    SUMMARY_PROMPT_BUNDLE,
+    SUMMARY_PROMPT_STANDALONE,
+    PLAN_PROMPT_BUNDLE,
+    PLAN_PROMPT_STANDALONE,
+    CLEANUP_PROMPT_BUNDLE,
+    CLEANUP_PROMPT_STANDALONE,
+)
 
 def get_message_repr(message: BaseMessage, max_len: int = 150) -> str:
     """Format a single message as a clean single line for representation."""
@@ -115,24 +132,17 @@ def get_system_instruction(
     tasks = []
     if bundle_plan_fired:
         tasks.append(
-            f"Call the `update_plan` tool to add, modify, or delete items on the **Plan**. "
-            f"It should reflect the developments since the last planning, which was {plan_turns_ago}."
+            UPDATE_PLAN_TASK_TEMPLATE.format(plan_turns_ago=plan_turns_ago)
         )
     if bundle_summary_fired:
         tasks.append(
-            f"Call the `append_summary` tool during this turn to append a 200-300 word summary "
-            f"describing the events that have unfolded since the last update, which was {summary_turns_ago}, into **Summary**."
+            APPEND_SUMMARY_TASK_TEMPLATE.format(summary_turns_ago=summary_turns_ago)
         )
     if bundle_cleanup_fired:
         tasks.append(
-            f"Call the `execute_code_sandbox` tool to review the global `state` and `hidden_state` objects, "
-            f"cleaning up any expired, redundant, or unnecessary keys/values to keep the variables lean and focused. "
-            f"The last cleanup was {cleanup_turns_ago}."
+            CLEANUP_TASK_TEMPLATE.format(cleanup_turns_ago=cleanup_turns_ago)
         )
-    tasks.append(
-        "Progress the story and event in this role-play using the available tools such as "
-        "`execute_code_sandbox`, `roll_xdy` and `random_int` based on the **State** and **Hidden-State**."
-    )
+    tasks.append(PROGRESS_STORY_TASK)
 
     total_tasks = len(tasks)
     tasks_formatted = []
@@ -144,44 +154,22 @@ def get_system_instruction(
     # 3. Format state sections
     is_4_element = isinstance(rpg_state, dict) and all(k in rpg_state for k in ("state", "plan", "summary", "hidden_state"))
     if is_4_element:
-        state_section = (
-            f"- **Current State (available as `state` json to `execute_code_sandbox`):\n"
-            f"```json\n{json.dumps(rpg_state['state'], indent=2, ensure_ascii=False)}\n```\n\n"
-            f"- **Current Hidden-State (available as `hidden_state` to `execute_code_sandbox`):\n"
-            f"```json\n{json.dumps(rpg_state['hidden_state'], indent=2, ensure_ascii=False)}\n```\n"
-            f"Note: DO NOT reveal Hidden-State to the player directly; simulate its effects organically if you must.\n\n"
-            f"- **Summary:**\n"
-            f"{rpg_state['summary'] or '[No events summarized yet]'}\n\n"
-            f"- **Plan:**\n"
-            f"{json.dumps(rpg_state['plan'], indent=2, ensure_ascii=False)}"
+        state_section = STATE_SECTION_4_ELEMENT.format(
+            state_json=json.dumps(rpg_state['state'], indent=2, ensure_ascii=False),
+            hidden_state_json=json.dumps(rpg_state['hidden_state'], indent=2, ensure_ascii=False),
+            summary=rpg_state['summary'] or '[No events summarized yet]',
+            plan_json=json.dumps(rpg_state['plan'], indent=2, ensure_ascii=False),
         )
     else:
-        state_section = (
-            f"- **Current State (available as `state` json to `execute_code_sandbox`):\n"
-            f"```json\n{json.dumps(rpg_state, indent=2, ensure_ascii=False)}\n```"
+        state_section = STATE_SECTION_BASIC.format(
+            state_json=json.dumps(rpg_state, indent=2, ensure_ascii=False)
         )
 
     # 4. Format sandbox constraints
     if engine_name == "v8":
-        sandbox_info = (
-            "- You have access to a JavaScript code execution sandbox (`execute_code_sandbox`) and dice rolling tools (`roll_xdy`).\n"
-            "- The JavaScript sandbox allows you to read/mutate the global `state` and `hidden_state` objects. Standard console methods like `console.log` work.\n"
-            "  Note: If the sandbox execution fails (due to syntax errors, exceptions, timeouts, or replacing `state` or `hidden_state` with a non-object), any changes are discarded and the original pre-execution state is fully restored.\n"
-            "- **Syntax Rules**:\n"
-            "  - Modify properties directly on the global objects. Example: `state.party.warrior.hp -= 10; hidden_state.ambush_triggered = true;`\n"
-            "  - Do NOT re-declare the `state` or `hidden_state` objects (e.g., do not write `let state = ...`).\n"
-            "  - Do NOT write return statements.\n"
-        )
+        sandbox_info = SANDBOX_INFO_V8
     else:
-        sandbox_info = (
-            "- You have access to a Python code execution sandbox (`execute_code_sandbox`) and dice rolling tools (`roll_xdy`).\n"
-            "- The Python sandbox allows you to read/mutate the `state` and `hidden_state` dicts.\n"
-            "- The Python sandbox has the following libraries available: math, random, json, time, datetime, collections, itertools, functools, re, string. Nothing outside of these libraries is available.\n"
-            "  Note: If the sandbox execution fails (due to syntax errors, exceptions, timeouts, or replacing `state` or `hidden_state` with a non-dict), any changes are discarded and the original pre-execution state is fully restored.\n"
-            "- **Syntax Rules**:\n"
-            "  - Modify properties directly on the dict objects. Example: `state['party']['warrior']['hp'] -= 10\nhidden_state['ambush_triggered'] = True`\n"
-            "  - Do NOT re-declare the `state` or `hidden_state` variables (e.g., do not write `state = ...`).\n"
-        )
+        sandbox_info = SANDBOX_INFO_PYTHON
 
     # 5. Format H2 blocks if triggered
     h2_instruction_blocks = ""
@@ -213,30 +201,46 @@ def get_system_instruction(
         )
         h2_instruction_blocks += f"\n\n## Storage Cleanup Required\n{cleanup_text}"
 
-    return (
-        "[Agent System Instruction]\n\n"
-        "### Tasks\n\n"
-        f"Perform the following {total_tasks} {task_word}: \n\n"
-        f"{tasks_block}\n\n"
-        "### Current Variables\n\n"
-        f"{state_section}\n\n"
-        "### Roleplay & Secrecy Guidelines\n"
-        "- **Hidden State Privacy**: Never mention the words \"Secret State\", \"Hidden State\", or output the raw JSON contents/variables from that section. Translate these metrics into organic, atmospheric narrative (e.g., instead of outputting \"dungeon_boss_hp: 250\", write \"The threat ahead looms large and formidable\").\n"
-        "- **Stateless Nature**: You do not retain memory of variables across turns (API calls). To remember a variable, you MUST save it to the public `state` object or the `hidden_state` object using the code sandbox.\n\n"
-        "### Tool & State Mapping Rules\n"
-        "- **State Modifications**: Use the `execute_code_sandbox` tool to modify the **State** (`state`) and **Hidden State** (`hidden_state`).\n"
-        "- **Narrative Plan Updates**: Use the `update_plan` tool to replace the **Plan** entirely (a list of dictionaries). Use the `update_plan_status` tool to update the statuses of checklist items.\n"
-        "- **Story Summary Updates**: Use the `append_summary` tool to modify the \"Active Story Summary (Rolling Summary)\".\n\n"
-        "### Sandbox Execution Constraints\n"
-        f"{sandbox_info}"
-        f"- Sandbox execution has a hard timeout of {sandbox_timeout} seconds. If execution fails, all changes are discarded.\n\n"
-        "### Budget & Directives\n"
-        f"- You have a strict budget of up to {max_iterations} tool-calling iterations.\n"
-        f"- Current Iteration: {current_iteration} of {max_iterations}.\n"
-        f"- Remaining Tool-Calling Budget: {rem_iterations}.\n"
-        f"- If you reach iteration {max_iterations}, no further tool calls will be executed. You must formulate your final response based on the state at that point.\n"
-        f"- Feel free to use the sandbox (`execute_code_sandbox`), dice rolling (`roll_xdy`), or random number generator (`random_int`) tools for mathematics, determining random events, and chances."
-        f"{h2_instruction_blocks}"
+    import rpg_agent.config as config
+
+    # Dynamic Summary & Plan Accessibility guidelines
+    guidelines_list = [
+        "- **Plan Status Updates**: Use the `update_plan_status` tool to update the statuses of checklist items on the **Plan**."
+    ]
+
+    if bundle_plan_fired:
+        guidelines_list.append(
+            "- **Narrative Plan Updates**: Use the `update_plan` tool to replace the **Plan** entirely (a list of dictionaries)."
+        )
+
+    if bundle_summary_fired:
+        guidelines_list.append(
+            "- **Story Summary Updates**: Use the `append_summary` tool to modify the \"Active Story Summary (Rolling Summary)\"."
+        )
+
+    summary_plan_access_guidelines = "\n".join(guidelines_list) + "\n"
+
+    state_constraints_info = (
+        f"- **State Cleanliness Constraints**:\n"
+        f"  - Limit string values in `state` or `hidden_state` to a maximum of {config.MAX_STRING_LENGTH} characters.\n"
+        f"  - Limit object/dictionary/list width to a maximum of {config.MAX_WIDTH} keys or elements.\n"
+        f"  - Limit object nesting depth to a maximum of {config.MAX_DEPTH} levels.\n"
+        f"  - Sandbox validation will programmatically enforce these constraints and discard any violating updates.\n"
+    )
+
+    return SYSTEM_INSTRUCTION_TEMPLATE.format(
+        total_tasks=total_tasks,
+        task_word=task_word,
+        tasks_block=tasks_block,
+        state_section=state_section,
+        sandbox_info=sandbox_info,
+        summary_plan_access_guidelines=summary_plan_access_guidelines,
+        state_constraints_info=state_constraints_info,
+        sandbox_timeout=sandbox_timeout,
+        max_iterations=max_iterations,
+        current_iteration=current_iteration,
+        rem_iterations=rem_iterations,
+        h2_instruction_blocks=h2_instruction_blocks,
     )
 
 def get_summary_prompt(
@@ -250,25 +254,21 @@ def get_summary_prompt(
 ) -> str:
     """Return the prompt for the narrative summarizer."""
     if is_bundle:
-        return (
-            f"Review the events of the last {turns_since_update} turns of conversation. "
-            f"The range of messages to summarize is: \"{range_ref}\".\n"
-            f"You must call the `append_summary` tool with a concise summary block (approximately {target_words} words) "
-            f"describing the developments in this range. Keep the tone matching the story."
+        return SUMMARY_PROMPT_BUNDLE.format(
+            turns_since_update=turns_since_update,
+            range_ref=range_ref,
+            target_words=target_words,
         )
     else:
         state_str = json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}"
         hidden_str = json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}"
-        return (
-            "You are a narrative summarizer for a role-playing game.\n"
-            f"Here is the public State:\n```json\n{state_str}\n```\n\n"
-            f"Here is the secret Hidden-State:\n```json\n{hidden_str}\n```\n\n"
-            f"Here is the story summary so far (reference only do not include it in your summary):\n{prev_summary or '[None]'}\n\n"
-            f"Write a concise summary block (approximately {target_words} words) "
-            f"summarizing the events of the last {turns_since_update} turns of conversation. "
-            f"The range of messages to summarize is: \"{range_ref}\".\n\n"
-            "Keep the tone matching the story.\n"
-            "Output ONLY the new summary block to append. Do not include introductory text, markdown formatting, or quotes."
+        return SUMMARY_PROMPT_STANDALONE.format(
+            state_str=state_str,
+            hidden_str=hidden_str,
+            prev_summary=prev_summary or '[None]',
+            target_words=target_words,
+            turns_since_update=turns_since_update,
+            range_ref=range_ref,
         )
 
 def get_plan_prompt(
@@ -281,26 +281,19 @@ def get_plan_prompt(
 ) -> str:
     """Return the prompt for the story planner and NPC coordinator."""
     if is_bundle:
-        return (
-            f"Review the story developed since the last planning, which was {turns_since_update} ago. "
-            f"The range of developments is: \"{range_ref}\".\n"
-            f"You must call the `update_plan` tool with an updated checklist (as an array of objects) "
-            f"incorporating new sub-goals that have emerged, keeping pending tasks, and removing completed items."
+        return PLAN_PROMPT_BUNDLE.format(
+            turns_since_update=turns_since_update,
+            range_ref=range_ref,
         )
     else:
         state_str = json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}"
         hidden_str = json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}"
-        return (
-            "You are a story planner and NPC coordinator for a role-playing game.\n"
-            f"Here is the public State:\n```json\n{state_str}\n```\n\n"
-            f"Here is the secret Hidden-State:\n```json\n{hidden_str}\n```\n\n"
-            f"Here is the current plan, which was created {turns_since_update} turns ago, is:\n{json.dumps(prev_plan, indent=2, ensure_ascii=False)}\n\n"
-            f"Review the story developed since the last planning. "
-            f"The range of developments (under the current plan) is: \"{range_ref}\".\n\n"
-            "Review the current checklist and how the story has progressed.\n"
-            "Generate an updated checklist of future story goals and NPC plans as a JSON array of objects, "
-            "where each object matches the schema: {\"id\": int, \"description\": str, \"status\": str, \"remark\": str}.\n"
-            "Output ONLY a valid JSON array of objects. Do not include markdown wraps (like ```json) or explanation."
+        return PLAN_PROMPT_STANDALONE.format(
+            state_str=state_str,
+            hidden_str=hidden_str,
+            prev_plan=json.dumps(prev_plan, indent=2, ensure_ascii=False),
+            turns_since_update=turns_since_update,
+            range_ref=range_ref,
         )
 
 
@@ -318,22 +311,13 @@ def get_cleanup_prompt(
         else "state.pop('temp_buff', None)\nhidden_state.pop('expired_quest_flag', None)"
     )
     if is_bundle:
-        return (
-            f"Review the current `state` and `hidden_state` JSON objects. "
-            f"Identify any keys, list elements, or parameters that have expired, are no longer active, "
-            f"or are redundant for the current narrative. Use the `execute_code_sandbox` tool to "
-            f"clean them up. Keep the variables slim and focused only on active/relevant game state."
-        )
+        return CLEANUP_PROMPT_BUNDLE
     else:
         state_str = json.dumps(state, indent=2, ensure_ascii=False) if state is not None else "{}"
         hidden_str = json.dumps(hidden_state, indent=2, ensure_ascii=False) if hidden_state is not None else "{}"
-        return (
-            f"You are a state optimization utility for an RPG agent.\n"
-            f"Here is the public State:\n```json\n{state_str}\n```\n\n"
-            f"Here is the secret Hidden-State:\n```json\n{hidden_str}\n```\n\n"
-            f"Review these objects and write a {lang} code snippet to remove/delete any "
-            f"expired, redundant, or unnecessary keys or parameters. "
-            f"For example, you can write: `{syntax_example}`.\n\n"
-            f"Output ONLY the raw {lang} code snippet to execute. Do NOT include markdown code blocks, "
-            f"introductory conversational text, or any explanations."
+        return CLEANUP_PROMPT_STANDALONE.format(
+            state_str=state_str,
+            hidden_str=hidden_str,
+            lang=lang,
+            syntax_example=syntax_example,
         )

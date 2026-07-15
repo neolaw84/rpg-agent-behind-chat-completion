@@ -36,6 +36,32 @@ def _migrate_state(state_dict: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _validate_and_normalize_import(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Validate data structure and normalize states for imported session data."""
+    if not isinstance(data, dict):
+        raise ValueError("Imported data must be a JSON object.")
+
+    validated: dict[str, dict[str, Any]] = {}
+    for turn_key, turn_info in data.items():
+        if not isinstance(turn_key, str) or len(turn_key) != 24:
+            raise ValueError(f"Invalid turn key '{turn_key}': must be a 24-character string.")
+        if not isinstance(turn_info, dict):
+            raise ValueError(f"Value for turn '{turn_key}' must be a JSON object.")
+        if "before" not in turn_info or "after" not in turn_info:
+            raise ValueError(f"Turn '{turn_key}' must contain both 'before' and 'after' keys.")
+        before_val = turn_info["before"]
+        after_val = turn_info["after"]
+        if not isinstance(before_val, dict) or not isinstance(after_val, dict):
+            raise ValueError(f"The 'before' and 'after' properties of turn '{turn_key}' must be JSON objects.")
+
+        validated[turn_key] = {
+            "before": _migrate_state(before_val),
+            "after": _migrate_state(after_val),
+        }
+    return validated
+
+
+
 class BaseSessionStorage(abc.ABC):
     """Abstract base class defining the Session Storage Interface (SOLID)."""
 
@@ -155,28 +181,7 @@ class FileSessionStorage(BaseSessionStorage):
         self._data = {}
 
     def import_data(self, data: dict[str, Any]) -> None:
-        if not isinstance(data, dict):
-            raise ValueError("Imported data must be a JSON object.")
-
-        validated_data: dict[str, dict[str, Any]] = {}
-        for turn_key, turn_info in data.items():
-            if not isinstance(turn_key, str) or len(turn_key) != 24:
-                raise ValueError(f"Invalid turn key '{turn_key}': must be a 24-character string.")
-            if not isinstance(turn_info, dict):
-                raise ValueError(f"Value for turn '{turn_key}' must be a JSON object.")
-            if "before" not in turn_info or "after" not in turn_info:
-                raise ValueError(f"Turn '{turn_key}' must contain both 'before' and 'after' keys.")
-            before_val = turn_info["before"]
-            after_val = turn_info["after"]
-            if not isinstance(before_val, dict) or not isinstance(after_val, dict):
-                raise ValueError(f"The 'before' and 'after' properties of turn '{turn_key}' must be JSON objects.")
-
-            validated_data[turn_key] = {
-                "before": _migrate_state(before_val),
-                "after": _migrate_state(after_val),
-            }
-
-        self._data = validated_data
+        self._data = _validate_and_normalize_import(data)
         self._save()
         logger.info("Session %s successfully imported to file.", self.session_id)
 
@@ -347,34 +352,14 @@ class PostgresSessionStorage(BaseSessionStorage):
         self.reset()
 
     def import_data(self, data: dict[str, Any]) -> None:
-        if not isinstance(data, dict):
-            raise ValueError("Imported data must be a JSON object.")
-
-        validated_data = []
-        for turn_key, turn_info in data.items():
-            if not isinstance(turn_key, str) or len(turn_key) != 24:
-                raise ValueError(f"Invalid turn key '{turn_key}': must be a 24-character string.")
-            if not isinstance(turn_info, dict):
-                raise ValueError(f"Value for turn '{turn_key}' must be a JSON object.")
-            if "before" not in turn_info or "after" not in turn_info:
-                raise ValueError(f"Turn '{turn_key}' must contain both 'before' and 'after' keys.")
-            before_val = turn_info["before"]
-            after_val = turn_info["after"]
-            if not isinstance(before_val, dict) or not isinstance(after_val, dict):
-                raise ValueError(f"The 'before' and 'after' properties of turn '{turn_key}' must be JSON objects.")
-
-            validated_data.append((
-                turn_key,
-                _migrate_state(before_val),
-                _migrate_state(after_val),
-            ))
+        validated_data = _validate_and_normalize_import(data)
 
         pool = _get_pg_pool()
         conn = pool.getconn()
         try:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM session_turns WHERE session_id = %s;", (self.session_id,))
-                for idx, (turn_key, before, after) in enumerate(validated_data):
+                for idx, (turn_key, turn_info) in enumerate(validated_data.items()):
                     cur.execute(
                         """
                         INSERT INTO session_turns (session_id, turn_key, before_state, after_state, accessed_at)
@@ -383,8 +368,8 @@ class PostgresSessionStorage(BaseSessionStorage):
                         (
                             self.session_id,
                             turn_key,
-                            json.dumps(before),
-                            json.dumps(after),
+                            json.dumps(turn_info["before"]),
+                            json.dumps(turn_info["after"]),
                             idx,
                         ),
                     )
