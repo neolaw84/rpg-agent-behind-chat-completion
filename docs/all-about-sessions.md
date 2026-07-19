@@ -26,7 +26,7 @@ If you are a non-technical user, **you do not need to configure anything manuall
 
 ## Part 1: How Session IDs are Resolved
 
-Whenever you send a chat completion request to the proxy, it automatically determines which session to load using a **3-level hierarchy** (highest priority to lowest):
+Whenever you send a chat completion request to the proxy, it automatically determines which session to load using a **4-level hierarchy** (highest priority to lowest):
 
 ### 1. Explicit Session ID (Highest Priority)
 You can force the proxy to use a specific session ID by placing it directly in the API URL or query string:
@@ -40,12 +40,15 @@ If no explicit session ID is set in the URL, the proxy scans your message histor
 * **Format**: `[session: name_here]` or `[session: my_campaign]` inside any message.
 * The proxy will extract `name_here` and use it as the session ID.
 
-### 3. Implicit Hash & Username (Lowest Priority / Fallback)
-If no explicit URL parameter or OOC tag is found, the proxy automatically calculates a fallback session ID by combining:
-1. An MD5 hash of the last 300 characters of the system prompt.
-2. The username/persona prefix from the last user message (e.g., `"Shan Yu: I attack the guard"` yields `"Shan Yu"`).
+### 3. Session ID from Proxy Annotation
+If no explicit session ID or OOC tag is found, the proxy scans assistant messages (newest to oldest) to find the last assistant message carrying a `[proxy: session=some-id turn=...]` annotation block and extracts `some-id` to reuse.
 
-This ensures that even if you configure nothing, different characters or users will automatically get isolated states.
+### 4. Implicit Hash & Username (Lowest Priority / Fallback)
+If no prior level resolves the session ID, the proxy automatically calculates a fallback session ID by combining:
+1. An MD5 hash of the first assistant message's suffix (last 300 characters with all whitespaces/spaces removed).
+2. An MD5 hash of the username/persona prefix from the last user message (e.g., `"Shan Yu: I attack"` yields the MD5 hash of `"Shan Yu"`).
+
+These two hashes are concatenated with double underscores, e.g. `<hash_of_message_suffix>__<hash_of_username>`. This ensures that different characters or users will automatically get isolated states.
 
 ---
 

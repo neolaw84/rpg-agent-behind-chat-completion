@@ -1,16 +1,19 @@
 """Session ID resolution and message-annotation helpers for the OpenRouter proxy.
 
-Implements a three-level session-ID hierarchy (highest → lowest priority):
+Implements a four-level session-ID hierarchy (highest → lowest priority):
 
 1. Explicit session ID — from URL path ``/v1/{session_id}/chat/completions``
    or query parameter ``?session_id=…``.
 2. OOC tag — a ``[session: name]`` tag found inside any message, scanned
    newest-first so the user can override it at any time.
-3. Stable suffix hash + username — MD5 of the last 300 characters of the
-   system prompt concatenated with the username extracted from the last user
-   message (e.g. ``"Shan Yu: blar"`` → ``"Shan Yu"``).
+3. Session ID from proxy annotation — scanned newest-first from assistant
+   messages looking for a ``[proxy: session=xxx ...]`` block.
+4. Stable first assistant message suffix hash + username hash — MD5 of the last
+   300 characters of the first assistant message (scanned oldest-first, stripped
+   of whitespace and proxy annotations) concatenated with the MD5 hash of the
+   username extracted from the last user message.
 
-The username component of option 3 is intentionally extracted from the
+The username component of option 4 is intentionally extracted from the
 *last* user message, but the username itself is expected to remain stable
 across a conversation; only the message body changes.
 
@@ -37,6 +40,9 @@ _SYSTEM_SUFFIX_CHARS = 300
 
 # Pattern to extract turn_key from a proxy-annotated assistant message.
 _TURN_KEY_RE = re.compile(r"\[proxy:.*?turn=([a-f0-9]{24})", re.IGNORECASE)
+
+# Pattern to extract session from a proxy-annotated assistant message.
+_PROXY_SESSION_RE = re.compile(r"\[proxy:.*?session=([^\s\]]+)", re.IGNORECASE)
 
 # Pattern to strip the full [proxy: ...] annotation block (including trailing
 # blank lines) from message content.  The block is always a single line of the
@@ -85,14 +91,51 @@ def extract_system_suffix_hash(
     suffix_chars: int = _SYSTEM_SUFFIX_CHARS,
 ) -> str | None:
     """Return an MD5 hex digest of the last ``suffix_chars`` characters of the
-    system prompt. Returns ``None`` if no system message is present.
+    system prompt, scanning messages from newest to oldest. Returns ``None`` if
+    no system message is present.
     """
-    for msg in messages:
+    for msg in reversed(messages):
         if msg.get("role") == "system":
             content = (msg.get("content") or "").strip()
             if not content:
                 continue
             suffix = content[-suffix_chars:] if len(content) > suffix_chars else content
+            return hashlib.md5(suffix.encode("utf-8")).hexdigest()[:16]
+    return None
+
+
+def extract_session_from_proxy_annotation(messages: list[dict[str, Any]]) -> str | None:
+    """Scan the messages list (newest first) for the last assistant message
+    that carries a ``[proxy: session=<sid> ...]`` annotation and return the session ID.
+    """
+    for msg in reversed(messages):
+        if msg.get("role") != "assistant":
+            continue
+        content = msg.get("content") or ""
+        match = _PROXY_SESSION_RE.search(content)
+        if match:
+            return match.group(1)
+    return None
+
+
+def extract_first_assistant_suffix_hash(
+    messages: list[dict[str, Any]],
+    suffix_chars: int = 300,
+) -> str | None:
+    """Return an MD5 hex digest of the last ``suffix_chars`` characters of the
+    first assistant message's content (after removing all whitespaces and proxy annotations).
+    Returns ``None`` if no assistant message is present.
+    """
+    for msg in messages:
+        if msg.get("role") == "assistant":
+            content = msg.get("content") or ""
+            # Strip any [proxy: ...] annotations
+            cleaned_content = _PROXY_BLOCK_RE.sub("", content)
+            # Remove all whitespace characters
+            cleaned = "".join(cleaned_content.split())
+            if not cleaned:
+                continue
+            suffix = cleaned[-suffix_chars:] if len(cleaned) > suffix_chars else cleaned
             return hashlib.md5(suffix.encode("utf-8")).hexdigest()[:16]
     return None
 
@@ -194,7 +237,7 @@ def resolve_session_id(
     messages: list[dict[str, Any]],
     explicit_session_id: str | None = None,
 ) -> tuple[str, str]:
-    """Resolve the session ID using the three-level hierarchy.
+    """Resolve the session ID using the four-level hierarchy.
 
     Returns a tuple of ``(session_id, method)`` where ``method`` is a
     human-readable description of which level matched (for logging).
@@ -212,14 +255,20 @@ def resolve_session_id(
     if ooc:
         return ooc, "ooc-tag"
 
-    # --- Level 3: Stable suffix hash + username ---
-    suffix_hash = extract_system_suffix_hash(messages)
-    username = extract_username_from_last_user_message(messages)
+    # --- Level 3: Session ID from proxy annotation ---
+    proxy_session = extract_session_from_proxy_annotation(messages)
+    if proxy_session:
+        return proxy_session, "proxy-annotation"
 
-    if suffix_hash or username:
-        parts = filter(None, [suffix_hash, username])
+    # --- Level 4: Stable first assistant message suffix hash + username hash ---
+    assistant_hash = extract_first_assistant_suffix_hash(messages)
+    username = extract_username_from_last_user_message(messages)
+    username_hash = hashlib.md5(username.encode("utf-8")).hexdigest()[:16] if username else None
+
+    if assistant_hash or username_hash:
+        parts = filter(None, [assistant_hash, username_hash])
         combined = "__".join(parts)
-        return combined, "suffix-hash+username"
+        return combined, "assistant-suffix-hash+username-hash"
 
     # Fallback — should be rare in practice
     return "unknown-session", "fallback"

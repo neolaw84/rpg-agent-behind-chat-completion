@@ -17,8 +17,9 @@ CLEANUP_TASK_TEMPLATE = (
 )
 
 PROGRESS_STORY_TASK = (
-    "Progress the story and event in this role-play using the available tools such as "
-    "`execute_code_sandbox`, `roll_xdy` and `random_int` based on the **State** and **Hidden-State**."
+    "Progress the story and events. You should perform game mechanic math, stat changes, "
+    "or outcome calculations using `execute_code_sandbox`, `roll_xdy`, or `random_int` "
+    "rather than calculating them textually in your response."
 )
 
 STATE_SECTION_4_ELEMENT = (
@@ -75,6 +76,8 @@ SYSTEM_INSTRUCTION_TEMPLATE = (
     "{sandbox_info}"
     "{state_constraints_info}"
     "- Sandbox execution has a hard timeout of {sandbox_timeout} seconds. If execution fails, all changes are discarded.\n\n"
+    "### Sandbox Mathematics & Logic Directives\n"
+    "- **Computational Accuracy**: AVOID performing arithmetic, math, or game mechanics calculations in your text response. You should execute all mathematical updates (e.g., modifying hit points, calculating currency, computing probabilities, or updating statistics) programmatically inside the `execute_code_sandbox` sandbox to ensure accuracy.\n"
     "### Budget & Directives\n"
     "- You have a strict budget of up to {max_iterations} tool-calling iterations.\n"
     "- Current Iteration: {current_iteration} of {max_iterations}.\n"

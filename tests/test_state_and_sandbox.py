@@ -242,3 +242,106 @@ def test_v8_sandbox_non_dict_state_reverts():
     assert updated == original
     assert "Warning" in output
 
+
+# ---------------------------------------------------------------------------
+# Session tests
+# ---------------------------------------------------------------------------
+
+from rpg_agent.core.session import (
+    resolve_session_id,
+    extract_system_suffix_hash,
+    extract_session_from_proxy_annotation,
+    extract_first_assistant_suffix_hash,
+)
+import hashlib
+
+def test_extract_system_suffix_hash_scans_newest_to_oldest():
+    messages = [
+        {"role": "system", "content": "This is system prompt A"},
+        {"role": "user", "content": "Hello"},
+        {"role": "system", "content": "This is system prompt B"},
+    ]
+    
+    # It should extract from the newest (bottom-most) system message, which is "This is system prompt B"
+    hash_b = extract_system_suffix_hash([{"role": "system", "content": "This is system prompt B"}])
+    assert extract_system_suffix_hash(messages) == hash_b
+
+
+def test_extract_session_from_proxy_annotation():
+    # 1. No assistant message
+    assert extract_session_from_proxy_annotation([{"role": "user", "content": "Hi"}]) is None
+
+    # 2. Assistant message without annotation
+    assert extract_session_from_proxy_annotation([
+        {"role": "assistant", "content": "Hello player!"}
+    ]) is None
+
+    # 3. Newest first scan
+    messages = [
+        {"role": "assistant", "content": "[proxy: session=old-session turn=xyz]\n\nFirst"},
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "[proxy: session=new-session turn=abc]\n\nSecond"},
+    ]
+    assert extract_session_from_proxy_annotation(messages) == "new-session"
+
+
+def test_extract_first_assistant_suffix_hash():
+    # 1. No assistant message
+    assert extract_first_assistant_suffix_hash([{"role": "user", "content": "Hi"}]) is None
+
+    # 2. Assistant message with whitespace and proxy block
+    messages = [
+        {"role": "user", "content": "Hi"},
+        {"role": "assistant", "content": "[proxy: session=sess turn=xyz]\n\nHello   World \n\n Good game. "},
+        {"role": "assistant", "content": "Should be ignored since it is the second assistant message."},
+    ]
+    # Content of first assistant: "Hello   World \n\n Good game. "
+    # Stripped proxy: "Hello   World \n\n Good game. "
+    # Stripped whitespace: "HelloWorldGoodgame."
+    # len("HelloWorldGoodgame.") is 19. Suffix is "HelloWorldGoodgame."
+    expected_hash = hashlib.md5(b"HelloWorldGoodgame.").hexdigest()[:16]
+    assert extract_first_assistant_suffix_hash(messages) == expected_hash
+
+
+def test_resolve_session_id_4_levels():
+    messages = [
+        {"role": "system", "content": "System prompt info"},
+        {"role": "assistant", "content": "[proxy: session=prox-sess turn=xyz]\n\nHello player"},
+        {"role": "user", "content": "Shan Yu: [session: ooc-sess] I attack!"},
+    ]
+
+    # Level 1: Explicit session ID
+    assert resolve_session_id(messages, explicit_session_id="explicit-sess") == ("explicit-sess", "explicit")
+
+    # Level 2: OOC tag
+    assert resolve_session_id(messages) == ("ooc-sess", "ooc-tag")
+
+    # Level 3: Proxy annotation (no OOC tag)
+    messages_no_ooc = [
+        {"role": "system", "content": "System prompt info"},
+        {"role": "assistant", "content": "[proxy: session=prox-sess turn=xyz]\n\nHello player"},
+        {"role": "user", "content": "Shan Yu: I attack!"},
+    ]
+    assert resolve_session_id(messages_no_ooc) == ("prox-sess", "proxy-annotation")
+
+    # Level 4: First assistant suffix hash + username hash (no OOC, no proxy annotation)
+    messages_fallback = [
+        {"role": "system", "content": "System prompt info"},
+        {"role": "assistant", "content": "Hello World. Good game."},
+        {"role": "user", "content": "Shan Yu: I attack!"},
+    ]
+    # Suffix hash for "HelloWorld.Goodgame." is md5 of it.
+    asst_hash = hashlib.md5(b"HelloWorld.Goodgame.").hexdigest()[:16]
+    # Username hash for "Shan Yu" is md5 of it.
+    u_hash = hashlib.md5(b"Shan Yu").hexdigest()[:16]
+    expected_l4 = f"{asst_hash}__{u_hash}"
+    assert resolve_session_id(messages_fallback) == (expected_l4, "assistant-suffix-hash+username-hash")
+
+    # Level 4: Only username hash (no assistant message yet)
+    messages_no_asst = [
+        {"role": "system", "content": "System prompt info"},
+        {"role": "user", "content": "Shan Yu: I attack!"},
+    ]
+    assert resolve_session_id(messages_no_asst) == (u_hash, "assistant-suffix-hash+username-hash")
+
+

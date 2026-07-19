@@ -180,6 +180,57 @@ async def test_plan_summary_gap_triggers(mock_streaming):
 
 @pytest.mark.asyncio
 @patch("rpg_agent.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
+async def test_periodic_trigger_order(mock_streaming):
+    from unittest.mock import patch, AsyncMock
+    from langchain_core.messages import AIMessage
+    from rpg_agent.agent.graph import run_agent
+
+    mock_streaming.return_value = ("GM reply", None, [])
+
+    # Setup: Interval = 8, summary_gap = 1, cleanup_gap = 2
+    with patch("rpg_agent.config.PLAN_TRIGGER_TYPE", "periodic"), \
+         patch("rpg_agent.config.PLAN_INTERVAL_TURNS", 8), \
+         patch("rpg_agent.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
+         patch("rpg_agent.config.SUMMARY_INTERVAL_TURNS", 8), \
+         patch("rpg_agent.config.PLAN_SUMMARY_GAP", 1), \
+         patch("rpg_agent.config.CLEANUP_TRIGGER_TYPE", "periodic"), \
+         patch("rpg_agent.config.CLEANUP_INTERVAL_TURNS", 8), \
+         patch("rpg_agent.config.PLAN_CLEANUP_GAP", 2):
+
+         # Check Turn 8 (Plan should fire, Summary/Cleanup should not)
+         # 7 assistant messages in history means we are on Turn 8
+         messages_8 = [{"role": "user", "content": "msg"}] + [{"role": "assistant", "content": "reply"}, {"role": "user", "content": "msg"}] * 7
+         with patch("langgraph.graph.state.CompiledStateGraph.ainvoke", new_callable=AsyncMock) as mock_invoke:
+             mock_invoke.return_value = {"messages": [AIMessage(content="GM reply")], "rpg_state": {}}
+             await run_agent(messages=messages_8, before_state={"state": {}}, api_key="fake", base_url="fake", model="fake")
+             cfg = mock_invoke.call_args[1]["config"]
+             assert cfg["configurable"]["plan_fired"] is True
+             assert cfg["configurable"]["summary_fired"] is False
+             assert cfg["configurable"]["cleanup_fired"] is False
+
+         # Check Turn 9 (Summary should fire, Plan/Cleanup should not)
+         messages_9 = messages_8 + [{"role": "assistant", "content": "reply"}, {"role": "user", "content": "msg"}]
+         with patch("langgraph.graph.state.CompiledStateGraph.ainvoke", new_callable=AsyncMock) as mock_invoke:
+             mock_invoke.return_value = {"messages": [AIMessage(content="GM reply")], "rpg_state": {}}
+             await run_agent(messages=messages_9, before_state={"state": {}}, api_key="fake", base_url="fake", model="fake")
+             cfg = mock_invoke.call_args[1]["config"]
+             assert cfg["configurable"]["plan_fired"] is False
+             assert cfg["configurable"]["summary_fired"] is True
+             assert cfg["configurable"]["cleanup_fired"] is False
+
+         # Check Turn 10 (Cleanup should fire, Plan/Summary should not)
+         messages_10 = messages_9 + [{"role": "assistant", "content": "reply"}, {"role": "user", "content": "msg"}]
+         with patch("langgraph.graph.state.CompiledStateGraph.ainvoke", new_callable=AsyncMock) as mock_invoke:
+             mock_invoke.return_value = {"messages": [AIMessage(content="GM reply")], "rpg_state": {}}
+             await run_agent(messages=messages_10, before_state={"state": {}}, api_key="fake", base_url="fake", model="fake")
+             cfg = mock_invoke.call_args[1]["config"]
+             assert cfg["configurable"]["plan_fired"] is False
+             assert cfg["configurable"]["summary_fired"] is False
+             assert cfg["configurable"]["cleanup_fired"] is True
+
+
+@pytest.mark.asyncio
+@patch("rpg_agent.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
 async def test_dynamic_tool_disabling_after_call(mock_streaming):
     from unittest.mock import patch, AsyncMock
     from langchain_core.messages import HumanMessage, AIMessage

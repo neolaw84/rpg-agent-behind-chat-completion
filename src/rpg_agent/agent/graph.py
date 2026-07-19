@@ -159,7 +159,7 @@ async def run_agent(
         rng = random.Random(seed_summary)
         summary_fired = rng.random() < SUMMARY_TRIGGER_PROBABILITY
     else:
-        summary_fired = ((turn_number + PLAN_SUMMARY_GAP) % SUMMARY_INTERVAL_TURNS == 0)
+        summary_fired = ((turn_number - PLAN_SUMMARY_GAP) % SUMMARY_INTERVAL_TURNS == 0)
 
     # Cleanup Trigger
     if CLEANUP_TRIGGER_TYPE == "disabled":
@@ -171,7 +171,7 @@ async def run_agent(
         rng = random.Random(seed_cleanup)
         cleanup_fired = rng.random() < CLEANUP_TRIGGER_PROBABILITY
     else:
-        cleanup_fired = ((turn_number + PLAN_CLEANUP_GAP) % CLEANUP_INTERVAL_TURNS == 0)
+        cleanup_fired = ((turn_number - PLAN_CLEANUP_GAP) % CLEANUP_INTERVAL_TURNS == 0)
 
     config: RunnableConfig = {"recursion_limit": max_iterations * 2 + 10}
     config["configurable"] = {

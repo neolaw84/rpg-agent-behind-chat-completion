@@ -120,10 +120,11 @@ PYTHONPATH=src uvicorn rpg_agent.proxy:app --host 0.0.0.0 --port 8000 --reload
 ## 4. Session & State Design
 
 ### Session ID
-Resolved per-request using a three-level hierarchy (highest → lowest priority):
+Resolved per-request using a four-level hierarchy (highest → lowest priority):
 1. **Explicit** — URL path `/v1/{session_id}/chat/completions` or query param `?session_id=`.
 2. **OOC tag** — `[session: name]` inside any message, scanned newest-first.
-3. **Suffix hash + username** — MD5 of last 300 chars of system prompt, concatenated with the persona name prefix of the last user message (e.g. `"Shan Yu: blar"` → `"Shan Yu"`).
+3. **Proxy annotation** — scanned newest-first from assistant messages looking for `[proxy: session=xxx ...]`.
+4. **First assistant suffix hash + username hash** — concatenation of the MD5 hash of the first assistant message's suffix (300 characters without spaces) and the MD5 hash of the username extracted from the last user message.
 
 ### Turn Key
 Each distinct point in a conversation is identified by a **turn key**:

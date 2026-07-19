@@ -9,9 +9,9 @@ state:
   # Directory where per-session JSON files are written (gitignored).
   storage_dir: "data/states"
   # Programmatic guardrails for state complexity
-  max_string_length: 80
-  max_depth: 4
-  max_width: 32
+  max_string_length: 128
+  max_depth: 8
+  max_width: 64
 
 
 sandbox:
@@ -21,7 +21,7 @@ sandbox:
 langgraph:
   # Maximum LLM ↔ Tool round-trips per request before the graph is forced
   # to stop.  Set to 6 so a stuck loop cannot spin indefinitely.
-  max_iterations: 6
+  max_iterations: 8
 
 llm:
   # The full completions API endpoint URL.
