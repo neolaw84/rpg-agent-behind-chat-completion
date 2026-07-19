@@ -50,6 +50,7 @@ SANDBOX_TIMEOUT: float = float(_sandbox_cfg.get("timeout_seconds", 8.0))
 MAX_ITERATIONS: int = int(_langgraph_cfg.get("max_iterations", 5))
 
 # Orchestration Configuration
+PLAN_OFFSET: int = int(_orchestration_cfg.get("plan_offset", 0))
 PLAN_SUMMARY_GAP: int = int(_orchestration_cfg.get("plan_summary_gap", 1))
 PLAN_CLEANUP_GAP: int = int(_orchestration_cfg.get("plan_cleanup_gap", 2))
 

@@ -115,7 +115,9 @@ async def test_graph_orchestration_nodes(mock_streaming, mock_direct):
     }
 
     # Patch configurations: enable triggers for both plan and summary, set bundle_llm to False
-    with patch("rpg_agent.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
+    with patch("rpg_agent.config.PLAN_OFFSET", 0), \
+         patch("rpg_agent.config.PLAN_SUMMARY_GAP", 1), \
+         patch("rpg_agent.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
          patch("rpg_agent.config.SUMMARY_INTERVAL_TURNS", 1), \
          patch("rpg_agent.config.SUMMARY_BUNDLE_LLM", False), \
          patch("rpg_agent.config.PLAN_TRIGGER_TYPE", "periodic"), \

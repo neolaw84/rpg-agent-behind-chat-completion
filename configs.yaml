@@ -42,8 +42,9 @@ llm:
 
 # Configuration for plan and summary updates
 orchestration:
-  plan_summary_gap: 1
-  plan_cleanup_gap: 2
+  plan_offset: 2
+  plan_summary_gap: 8
+  plan_cleanup_gap: 9
   plan:
     # Trigger configurations: "periodic", "probabilistic", or "disabled"
     trigger_type: "periodic"

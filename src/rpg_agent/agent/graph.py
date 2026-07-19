@@ -117,6 +117,7 @@ async def run_agent(
 
     # 1. Decoupled trigger calculations for plan, summary, and cleanup
     from rpg_agent.config import (
+        PLAN_OFFSET,
         PLAN_TRIGGER_TYPE,
         PLAN_INTERVAL_TURNS,
         PLAN_TRIGGER_PROBABILITY,
@@ -138,8 +139,6 @@ async def run_agent(
     # Plan Trigger
     if PLAN_TRIGGER_TYPE == "disabled":
         plan_fired = False
-    elif turn_number == 1:
-        plan_fired = True
     elif PLAN_TRIGGER_TYPE == "probabilistic":
         msg_contents = [m.get("content") or "" for m in messages]
         seed = int(hashlib.sha256("\x00".join(msg_contents).encode("utf-8")).hexdigest(), 16)
@@ -147,7 +146,13 @@ async def run_agent(
         rng = random.Random(seed_plan)
         plan_fired = rng.random() < PLAN_TRIGGER_PROBABILITY
     else:
-        plan_fired = (turn_number % PLAN_INTERVAL_TURNS == 0)
+        if PLAN_OFFSET > 0:
+            plan_fired = (turn_number >= PLAN_OFFSET and (turn_number - PLAN_OFFSET) % PLAN_INTERVAL_TURNS == 0)
+        else:
+            if turn_number == 1:
+                plan_fired = True
+            else:
+                plan_fired = (turn_number % PLAN_INTERVAL_TURNS == 0)
 
     # Summary Trigger
     if SUMMARY_TRIGGER_TYPE == "disabled":
@@ -159,7 +164,7 @@ async def run_agent(
         rng = random.Random(seed_summary)
         summary_fired = rng.random() < SUMMARY_TRIGGER_PROBABILITY
     else:
-        summary_fired = ((turn_number - PLAN_SUMMARY_GAP) % SUMMARY_INTERVAL_TURNS == 0)
+        summary_fired = (turn_number >= PLAN_SUMMARY_GAP and (turn_number - PLAN_SUMMARY_GAP) % SUMMARY_INTERVAL_TURNS == 0)
 
     # Cleanup Trigger
     if CLEANUP_TRIGGER_TYPE == "disabled":
@@ -171,7 +176,7 @@ async def run_agent(
         rng = random.Random(seed_cleanup)
         cleanup_fired = rng.random() < CLEANUP_TRIGGER_PROBABILITY
     else:
-        cleanup_fired = ((turn_number - PLAN_CLEANUP_GAP) % CLEANUP_INTERVAL_TURNS == 0)
+        cleanup_fired = (turn_number >= PLAN_CLEANUP_GAP and (turn_number - PLAN_CLEANUP_GAP) % CLEANUP_INTERVAL_TURNS == 0)
 
     config: RunnableConfig = {"recursion_limit": max_iterations * 2 + 10}
     config["configurable"] = {
