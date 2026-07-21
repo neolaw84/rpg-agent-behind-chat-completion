@@ -1,7 +1,7 @@
 import json
 import pytest
 from unittest.mock import patch, AsyncMock
-from rpg_agent.agent.prompts import get_summary_prompt, get_plan_prompt
+from rachel.agent.prompts import get_summary_prompt, get_plan_prompt
 
 def test_get_summary_prompt():
     prev_summary = "Alice went to the tavern."
@@ -55,7 +55,7 @@ def test_get_plan_prompt():
 
 
 def test_get_tools_schema_filtering():
-    from rpg_agent.sandbox.schemas import get_tools_schema
+    from rachel.sandbox.schemas import get_tools_schema
 
     # Test default
     schemas = get_tools_schema("v8")
@@ -94,11 +94,11 @@ def test_get_tools_schema_filtering():
 
 
 @pytest.mark.asyncio
-@patch("rpg_agent.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
+@patch("rachel.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
 async def test_plan_summary_gap_triggers(mock_streaming):
     from unittest.mock import patch, AsyncMock
     from langchain_core.messages import AIMessage
-    from rpg_agent.agent.graph import run_agent
+    from rachel.agent.graph import run_agent
 
     mock_streaming.return_value = ("GM reply", None, [])
 
@@ -106,12 +106,12 @@ async def test_plan_summary_gap_triggers(mock_streaming):
     # For turn_number = 2 (1 assistant message in history):
     # plan_fired = (2 % 2 == 0) -> True.
     # summary_fired = ((2 + 1) % 2 == 0) -> False.
-    with patch("rpg_agent.config.PLAN_OFFSET", 0), \
-         patch("rpg_agent.config.PLAN_TRIGGER_TYPE", "periodic"), \
-         patch("rpg_agent.config.PLAN_INTERVAL_TURNS", 2), \
-         patch("rpg_agent.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
-         patch("rpg_agent.config.SUMMARY_INTERVAL_TURNS", 2), \
-         patch("rpg_agent.config.PLAN_SUMMARY_GAP", 1):
+    with patch("rachel.config.PLAN_OFFSET", 0), \
+         patch("rachel.config.PLAN_TRIGGER_TYPE", "periodic"), \
+         patch("rachel.config.PLAN_INTERVAL_TURNS", 2), \
+         patch("rachel.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
+         patch("rachel.config.SUMMARY_INTERVAL_TURNS", 2), \
+         patch("rachel.config.PLAN_SUMMARY_GAP", 1):
 
          messages = [
              {"role": "user", "content": "hello"},
@@ -184,24 +184,24 @@ async def test_plan_summary_gap_triggers(mock_streaming):
 
 
 @pytest.mark.asyncio
-@patch("rpg_agent.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
+@patch("rachel.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
 async def test_periodic_trigger_order(mock_streaming):
     from unittest.mock import patch, AsyncMock
     from langchain_core.messages import AIMessage
-    from rpg_agent.agent.graph import run_agent
+    from rachel.agent.graph import run_agent
 
     mock_streaming.return_value = ("GM reply", None, [])
 
     # Setup: Interval = 8, summary_gap = 1, cleanup_gap = 2
-    with patch("rpg_agent.config.PLAN_OFFSET", 0), \
-         patch("rpg_agent.config.PLAN_TRIGGER_TYPE", "periodic"), \
-         patch("rpg_agent.config.PLAN_INTERVAL_TURNS", 8), \
-         patch("rpg_agent.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
-         patch("rpg_agent.config.SUMMARY_INTERVAL_TURNS", 8), \
-         patch("rpg_agent.config.PLAN_SUMMARY_GAP", 1), \
-         patch("rpg_agent.config.CLEANUP_TRIGGER_TYPE", "periodic"), \
-         patch("rpg_agent.config.CLEANUP_INTERVAL_TURNS", 8), \
-         patch("rpg_agent.config.PLAN_CLEANUP_GAP", 2):
+    with patch("rachel.config.PLAN_OFFSET", 0), \
+         patch("rachel.config.PLAN_TRIGGER_TYPE", "periodic"), \
+         patch("rachel.config.PLAN_INTERVAL_TURNS", 8), \
+         patch("rachel.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
+         patch("rachel.config.SUMMARY_INTERVAL_TURNS", 8), \
+         patch("rachel.config.PLAN_SUMMARY_GAP", 1), \
+         patch("rachel.config.CLEANUP_TRIGGER_TYPE", "periodic"), \
+         patch("rachel.config.CLEANUP_INTERVAL_TURNS", 8), \
+         patch("rachel.config.PLAN_CLEANUP_GAP", 2):
 
          # Check Turn 8 (Plan should fire, Summary/Cleanup should not)
          # 7 assistant messages in history means we are on Turn 8
@@ -236,11 +236,11 @@ async def test_periodic_trigger_order(mock_streaming):
 
 
 @pytest.mark.asyncio
-@patch("rpg_agent.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
+@patch("rachel.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
 async def test_new_orchestration_trigger_schedule(mock_streaming):
     from unittest.mock import patch, AsyncMock
     from langchain_core.messages import AIMessage
-    from rpg_agent.agent.graph import run_agent
+    from rachel.agent.graph import run_agent
 
     mock_streaming.return_value = ("GM reply", None, [])
 
@@ -248,15 +248,15 @@ async def test_new_orchestration_trigger_schedule(mock_streaming):
     # Plan starts on Turn 2 (interval 8)
     # Summary starts on Turn 8 (interval 8)
     # Cleanup starts on Turn 9 (interval 8)
-    with patch("rpg_agent.config.PLAN_TRIGGER_TYPE", "periodic"), \
-         patch("rpg_agent.config.PLAN_INTERVAL_TURNS", 8), \
-         patch("rpg_agent.config.PLAN_OFFSET", 2), \
-         patch("rpg_agent.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
-         patch("rpg_agent.config.SUMMARY_INTERVAL_TURNS", 8), \
-         patch("rpg_agent.config.PLAN_SUMMARY_GAP", 8), \
-         patch("rpg_agent.config.CLEANUP_TRIGGER_TYPE", "periodic"), \
-         patch("rpg_agent.config.CLEANUP_INTERVAL_TURNS", 8), \
-         patch("rpg_agent.config.PLAN_CLEANUP_GAP", 9):
+    with patch("rachel.config.PLAN_TRIGGER_TYPE", "periodic"), \
+         patch("rachel.config.PLAN_INTERVAL_TURNS", 8), \
+         patch("rachel.config.PLAN_OFFSET", 2), \
+         patch("rachel.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
+         patch("rachel.config.SUMMARY_INTERVAL_TURNS", 8), \
+         patch("rachel.config.PLAN_SUMMARY_GAP", 8), \
+         patch("rachel.config.CLEANUP_TRIGGER_TYPE", "periodic"), \
+         patch("rachel.config.CLEANUP_INTERVAL_TURNS", 8), \
+         patch("rachel.config.PLAN_CLEANUP_GAP", 9):
 
          # 1. Turn 1 (0 assistant messages in history): None should fire
          messages_1 = [{"role": "user", "content": "msg"}]
@@ -310,11 +310,11 @@ async def test_new_orchestration_trigger_schedule(mock_streaming):
 
 
 @pytest.mark.asyncio
-@patch("rpg_agent.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
+@patch("rachel.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
 async def test_dynamic_tool_disabling_after_call(mock_streaming):
     from unittest.mock import patch, AsyncMock
     from langchain_core.messages import HumanMessage, AIMessage
-    from rpg_agent.agent.graph import _build_llm_node, AgentState
+    from rachel.agent.graph import _build_llm_node, AgentState
     from langchain_core.runnables import RunnableConfig
 
     mock_streaming.return_value = ("GM response", None, [])
@@ -350,7 +350,7 @@ async def test_dynamic_tool_disabling_after_call(mock_streaming):
         }
     }
 
-    with patch("rpg_agent.agent.graph.get_system_instruction") as mock_get_instruction:
+    with patch("rachel.agent.graph.get_system_instruction") as mock_get_instruction:
         mock_get_instruction.return_value = "System Prompt"
         await llm_node_fn(state, config)
 
@@ -361,7 +361,7 @@ async def test_dynamic_tool_disabling_after_call(mock_streaming):
 
 
 def test_system_instruction_dynamic_formatting():
-    from rpg_agent.agent.prompts import get_system_instruction
+    from rachel.agent.prompts import get_system_instruction
     from langchain_core.messages import HumanMessage, AIMessage
 
     messages = [
@@ -449,7 +449,7 @@ def test_system_instruction_dynamic_formatting():
     assert "which was 1 turns ago (at the start of the game)" in instruction_first
 
 def test_middle_out_messages():
-    from rpg_agent.agent.prompts import middle_out_messages
+    from rachel.agent.prompts import middle_out_messages
     from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
     
     messages = [
@@ -479,7 +479,7 @@ def test_middle_out_messages():
     assert result_2[4].content == "Enjoy your ale!"
 
 def test_update_plan_status():
-    from rpg_agent.agent.tools import make_tools
+    from rachel.agent.tools import make_tools
     state_container = {
         "current_turn": 5,
         "rpg_state": {
@@ -500,11 +500,11 @@ def test_update_plan_status():
 
 
 @pytest.mark.asyncio
-@patch("rpg_agent.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
+@patch("rachel.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
 async def test_llm_node_remaining_iterations(mock_streaming):
     from unittest.mock import patch, AsyncMock
     from langchain_core.messages import HumanMessage
-    from rpg_agent.agent.graph import _build_llm_node, AgentState
+    from rachel.agent.graph import _build_llm_node, AgentState
     from langchain_core.runnables import RunnableConfig
 
     mock_streaming.return_value = ("GM response", None, [])
@@ -530,7 +530,7 @@ async def test_llm_node_remaining_iterations(mock_streaming):
         "sandbox_timeout": 2.0,
         "iteration_count": 0
     }
-    with patch("rpg_agent.agent.graph.get_system_instruction") as mock_get_instruction:
+    with patch("rachel.agent.graph.get_system_instruction") as mock_get_instruction:
         mock_get_instruction.return_value = "System Prompt"
         await llm_node_fn(state_0, config)
         kwargs = mock_get_instruction.call_args[1]
@@ -544,7 +544,7 @@ async def test_llm_node_remaining_iterations(mock_streaming):
         "sandbox_timeout": 2.0,
         "iteration_count": 4
     }
-    with patch("rpg_agent.agent.graph.get_system_instruction") as mock_get_instruction:
+    with patch("rachel.agent.graph.get_system_instruction") as mock_get_instruction:
         mock_get_instruction.return_value = "System Prompt"
         await llm_node_fn(state_4, config)
         kwargs = mock_get_instruction.call_args[1]

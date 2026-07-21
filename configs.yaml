@@ -1,5 +1,7 @@
-# Proxy configuration
-# All paths are relative to the repository root.
+server:
+  # Externally reachable base URL override (e.g. "https://my-proxy.example.com").
+  # Leave empty/null to auto-detect from SPACE_HOST, RAILWAY_PUBLIC_DOMAIN, or localhost.
+  public_url: null
 
 state:
   # Storage engine: "file" (default) or "postgres"

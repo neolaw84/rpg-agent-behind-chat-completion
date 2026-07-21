@@ -3,9 +3,9 @@
 import pytest
 import copy
 from unittest.mock import patch
-from rpg_agent.agent.tools import make_tools
-from rpg_agent.sandbox.sandbox import get_sandbox_engine
-import rpg_agent.config as config
+from rachel.agent.tools import make_tools
+from rachel.sandbox.sandbox import get_sandbox_engine
+import rachel.config as config
 
 @pytest.fixture
 def clean_state():
@@ -67,7 +67,7 @@ def test_validation_string_too_long(clean_state):
     engine = get_sandbox_engine()
     code = get_code_for_engine(engine.name, "long_string")
     
-    with patch("rpg_agent.config.MAX_STRING_LENGTH", 80):
+    with patch("rachel.config.MAX_STRING_LENGTH", 80):
         result = sandbox_tool.invoke({"code": code})
         
     assert "Sandbox Validation Error" in result
@@ -85,7 +85,7 @@ def test_validation_wide_structure(clean_state):
     engine = get_sandbox_engine()
     code = get_code_for_engine(engine.name, "wide_dict")
     
-    with patch("rpg_agent.config.MAX_WIDTH", 32):
+    with patch("rachel.config.MAX_WIDTH", 32):
         result = sandbox_tool.invoke({"code": code})
         
     assert "Sandbox Validation Error" in result
@@ -102,7 +102,7 @@ def test_validation_deep_structure(clean_state):
     engine = get_sandbox_engine()
     code = get_code_for_engine(engine.name, "deep_dict")
     
-    with patch("rpg_agent.config.MAX_DEPTH", 4):
+    with patch("rachel.config.MAX_DEPTH", 4):
         result = sandbox_tool.invoke({"code": code})
         
     assert "Sandbox Validation Error" in result

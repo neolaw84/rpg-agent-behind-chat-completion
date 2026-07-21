@@ -1,5 +1,5 @@
 ---
-title: RPG Agent Behind Chat Completion
+title: RACHEL (rachel-proxy)
 emoji: 🎲
 colorFrom: red
 colorTo: blue
@@ -8,57 +8,42 @@ app_port: 7860
 pinned: false
 ---
 
-# RPG Agent Behind Chat Completion
+# RACHEL (rachel-proxy)
 
-A FastAPI proxy that sits between JanitorAI (or any OpenAI-compatible client) and [OpenRouter](https://openrouter.ai/), running request payloads through a stateful LangGraph agent with a secure Python code sandbox and dice rolling tools.
+**RACHEL** (**R**pg **A**gent **CH**at **E**valuation **L**oop) is a FastAPI proxy that sits between JanitorAI (or any OpenAI-compatible client) and LLM completion providers (OpenRouter, OpenAI, Google Gemini, DeepSeek), running request payloads through a stateful LangGraph agent with a secure Python/V8 code sandbox and dice rolling tools.
 
-* [Why Use the RPG Agent Proxy?](docs/why-rpg-agent.md) — Core features, benefits, assumptions, and design philosophies.
+* [Why Use RACHEL?](docs/why-rachel.md) — Core features, benefits, assumptions, and design philosophies.
 * [All About Sessions](docs/all-about-sessions.md) — How session IDs are resolved and managed via API endpoints.
-
-## One-Click Deployments
-
-You can deploy your own instance of the RPG Agent proxy to the cloud instantly without configuring local environments:
-
-### 1. Hugging Face Spaces (Free CPU)
-
-Click the button below to duplicate the template Space to your Hugging Face account:
-
-[![Deploy to Hugging Face](https://huggingface.co/datasets/huggingface/badges/resolve/main/deploy-to-spaces-lg.svg)](https://huggingface.co/spaces/edward-law/rab-cc?duplicate=true)
-
-*Note: In the Space settings, make sure to set `OPENROUTER_API_KEY` under **Repository Secrets**. Also set `RPG_AGENT_PROXY_KEY` to your Hugging Face token.*
-
-For step-by-step instructions, see the [Hugging Face Spaces Deployment Guide](docs/deployment-huggingface.md).
-
-### 2. Railway.com
-
-Click the button below to deploy this repository directly to Railway:
-
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https%3A%2F%2Fgithub.com%2Fneolaw84%2Frpg-agent-behind-chat-completion)
-
-*Note: Once deployed, go to the **Variables** tab in your Railway service settings and add `OPENROUTER_API_KEY`. You can view the auto-generated proxy API key in the **Logs** tab, or configure your own by setting the `RPG_AGENT_PROXY_KEY` variable.*
-
-For step-by-step instructions, see the [Railway Deployment Guide](docs/deployment-railway.md).
+* [Road to Multi-Tenant](docs/road-to-multi-tenant.md) — Multi-tenant cloud roadmap and architecture.
 
 ---
 
-## Quick Start
+## One-Click Desktop Launchers (Single-Tenant Mode)
 
-1. Copy `.env.example` to `.env` and set your OpenRouter key:
-   ```bash
-   cp .env.example .env
-   # edit .env and fill in OPENROUTER_API_KEY
-   ```
+Download the release zip for your operating system from [Releases](../../releases) and launch with one click:
 
-2. Activate the virtual environment:
-   ```bash
-   source venv/bin/activate
-   ```
+### Windows
+1. Unzip `rachel-proxy-vX.X.X-win-x64.zip`.
+2. Double-click `launch.bat`.
+3. *Security Warning Bypass*: If Windows SmartScreen displays *"Windows protected your PC"*, click **More info** $\rightarrow$ **Run anyway**.
 
-3. Run the proxy:
-   ```bash
-   PYTHONPATH=src uvicorn rpg_agent.proxy:app --host 0.0.0.0 --port 8000 --reload
-   ```
+### macOS
+1. Unzip `rachel-proxy-vX.X.X-mac-arm64.zip` (Apple Silicon) or `rachel-proxy-vX.X.X-mac-x64.zip` (Intel).
+2. Double-click `launch.command`.
+3. *Security Warning Bypass*: If macOS blocks execution (*"Unidentified Developer"*), open **System Settings** $\rightarrow$ **Privacy & Security** $\rightarrow$ click **Open Anyway**, or run `xattr -cr launch.command` in Terminal.
 
-4. Point your client at `http://localhost:8000/v1/chat/completions`.
+### Linux
+1. Unzip `rachel-proxy-vX.X.X-linux-x64.zip`.
+2. Double-click `launch.sh` (or `rachel-proxy.desktop`).
+
+---
+
+## Initial Setup & LLM Provider Credentials
+
+Once the proxy starts, open the Admin Console in your browser at `http://localhost:8000`:
+
+1. **Proxy API Key**: Enter the local admin key (printed to console logs or saved in `data/proxy.key`).
+2. **Provider Credentials**: Configure your preferred provider (**OpenRouter BYOK / PKCE**, **OpenAI**, **Google Gemini**, or **DeepSeek**) directly in the **Provider Credentials** card.
+3. Select your **Active Provider** and save settings.
 
 Captured payloads are appended to [`docs/example-janitorai-payload.md`](docs/example-janitorai-payload.md).

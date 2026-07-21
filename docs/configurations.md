@@ -1,4 +1,4 @@
-# Configuring Your RPG Agent Proxy (`configs.yaml`)
+# Configuring Your RACHEL Proxy (`configs.yaml`)
 
 This guide explains all the configuration settings available in `configs.yaml` in plain English. If you deploy this proxy to run your roleplay campaigns (using clients like JanitorAI or SillyTavern), you can tweak these settings to adjust memory limits, campaign pacing, background LLM models, and combat calculations.
 

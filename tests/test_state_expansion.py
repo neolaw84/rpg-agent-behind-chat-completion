@@ -7,11 +7,11 @@ import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from rpg_agent.core.state import SessionStateStore, _migrate_state
-from rpg_agent.sandbox.sandbox import execute_sandbox
-from rpg_agent.agent.tools import make_tools
-from rpg_agent.agent.graph import run_agent
-from rpg_agent.agent.prompts import get_system_instruction
+from rachel.core.state import SessionStateStore, _migrate_state
+from rachel.sandbox.sandbox import execute_sandbox
+from rachel.agent.tools import make_tools
+from rachel.agent.graph import run_agent
+from rachel.agent.prompts import get_system_instruction
 
 
 # 1. Test state migration and backward-compatibility
@@ -46,8 +46,8 @@ def test_state_migration():
 # 2. Test sandbox execution with state and hidden_state
 @pytest.mark.parametrize("engine_name", ["v8", "python"])
 def test_sandbox_with_hidden_state(engine_name):
-    from rpg_agent.sandbox.sandbox import get_sandbox_engine
-    env_patch = {"RPG_AGENT_SANDBOX_ENGINE": engine_name}
+    from rachel.sandbox.sandbox import get_sandbox_engine
+    env_patch = {"RACHEL_SANDBOX_ENGINE": engine_name}
 
     with patch.dict("os.environ", env_patch):
         engine = get_sandbox_engine()
@@ -96,8 +96,8 @@ def test_deterministic_seeding():
 
 # 4. Test Graph Orchestration Nodes (Summary and Plan trigger execution with bundle_llm=False)
 @pytest.mark.asyncio
-@patch("rpg_agent.agent.openrouter.call_openrouter_direct", new_callable=AsyncMock)
-@patch("rpg_agent.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
+@patch("rachel.agent.openrouter.call_openrouter_direct", new_callable=AsyncMock)
+@patch("rachel.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
 async def test_graph_orchestration_nodes(mock_streaming, mock_direct):
     # Set summary model response and plan model response
     mock_direct.side_effect = [
@@ -115,14 +115,14 @@ async def test_graph_orchestration_nodes(mock_streaming, mock_direct):
     }
 
     # Patch configurations: enable triggers for both plan and summary, set bundle_llm to False
-    with patch("rpg_agent.config.PLAN_OFFSET", 0), \
-         patch("rpg_agent.config.PLAN_SUMMARY_GAP", 1), \
-         patch("rpg_agent.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
-         patch("rpg_agent.config.SUMMARY_INTERVAL_TURNS", 1), \
-         patch("rpg_agent.config.SUMMARY_BUNDLE_LLM", False), \
-         patch("rpg_agent.config.PLAN_TRIGGER_TYPE", "periodic"), \
-         patch("rpg_agent.config.PLAN_INTERVAL_TURNS", 1), \
-         patch("rpg_agent.config.PLAN_BUNDLE_LLM", False):
+    with patch("rachel.config.PLAN_OFFSET", 0), \
+         patch("rachel.config.PLAN_SUMMARY_GAP", 1), \
+         patch("rachel.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
+         patch("rachel.config.SUMMARY_INTERVAL_TURNS", 1), \
+         patch("rachel.config.SUMMARY_BUNDLE_LLM", False), \
+         patch("rachel.config.PLAN_TRIGGER_TYPE", "periodic"), \
+         patch("rachel.config.PLAN_INTERVAL_TURNS", 1), \
+         patch("rachel.config.PLAN_BUNDLE_LLM", False):
 
          messages = [
              {"role": "user", "content": "I open the door."},
@@ -152,8 +152,8 @@ async def test_graph_orchestration_nodes(mock_streaming, mock_direct):
 
 # 5. Test Graph routing with disabled triggers
 @pytest.mark.asyncio
-@patch("rpg_agent.agent.openrouter.call_openrouter_direct", new_callable=AsyncMock)
-@patch("rpg_agent.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
+@patch("rachel.agent.openrouter.call_openrouter_direct", new_callable=AsyncMock)
+@patch("rachel.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
 async def test_graph_routing_with_disabled_triggers(mock_streaming, mock_direct):
     mock_streaming.return_value = ("You see a chest.", None, [])
 
@@ -165,9 +165,9 @@ async def test_graph_routing_with_disabled_triggers(mock_streaming, mock_direct)
     }
 
     # Summary is disabled, Plan is probabilistic but doesn't trigger (probability 0.0)
-    with patch("rpg_agent.config.SUMMARY_TRIGGER_TYPE", "disabled"), \
-         patch("rpg_agent.config.PLAN_TRIGGER_TYPE", "probabilistic"), \
-         patch("rpg_agent.config.PLAN_TRIGGER_PROBABILITY", 0.0):
+    with patch("rachel.config.SUMMARY_TRIGGER_TYPE", "disabled"), \
+         patch("rachel.config.PLAN_TRIGGER_TYPE", "probabilistic"), \
+         patch("rachel.config.PLAN_TRIGGER_PROBABILITY", 0.0):
 
          messages = [
              {"role": "user", "content": "I walk forward."}
@@ -192,7 +192,7 @@ async def test_graph_routing_with_disabled_triggers(mock_streaming, mock_direct)
 
 # 6. Test Bundled Trigger execution (injecting directives and executing tool calls with bundle_llm=True)
 @pytest.mark.asyncio
-@patch("rpg_agent.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
+@patch("rachel.agent.graph.call_openrouter_streaming", new_callable=AsyncMock)
 async def test_bundled_trigger_nodes_execution(mock_streaming):
     # Set main GM response to invoke tools update_plan and append_summary
     # Return structure: (content, reasoning, list_of_tool_calls)
@@ -227,12 +227,12 @@ async def test_bundled_trigger_nodes_execution(mock_streaming):
     }
 
     # Set both plan and summary to bundle_llm=True, and trigger periodic updates
-    with patch("rpg_agent.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
-         patch("rpg_agent.config.SUMMARY_INTERVAL_TURNS", 1), \
-         patch("rpg_agent.config.SUMMARY_BUNDLE_LLM", True), \
-         patch("rpg_agent.config.PLAN_TRIGGER_TYPE", "periodic"), \
-         patch("rpg_agent.config.PLAN_INTERVAL_TURNS", 1), \
-         patch("rpg_agent.config.PLAN_BUNDLE_LLM", True):
+    with patch("rachel.config.SUMMARY_TRIGGER_TYPE", "periodic"), \
+         patch("rachel.config.SUMMARY_INTERVAL_TURNS", 1), \
+         patch("rachel.config.SUMMARY_BUNDLE_LLM", True), \
+         patch("rachel.config.PLAN_TRIGGER_TYPE", "periodic"), \
+         patch("rachel.config.PLAN_INTERVAL_TURNS", 1), \
+         patch("rachel.config.PLAN_BUNDLE_LLM", True):
 
          messages = [
              {"role": "user", "content": "Let's plan."}

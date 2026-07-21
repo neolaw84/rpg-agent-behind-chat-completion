@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=RACHEL RPG Agent Proxy
+Comment=Launch RPG Agent Behind Chat Completion Proxy
+Exec=bash -c "$(dirname %k)/launch.sh"
+Icon=utilities-terminal
+Terminal=true
+Categories=Development;Game;

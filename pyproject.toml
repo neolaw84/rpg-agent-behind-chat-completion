@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "rpg-agent-behind-chat-completion"
+name = "rachel-proxy"
 version = "0.1.0"
-description = "RPG Agent Behind Chat Completion"
+description = "RACHEL (Rpg Agent CHat Evaluation Loop) - OpenAI-compatible Chat Completion API proxy with stateful LangGraph agent and V8 code sandbox"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
@@ -35,10 +35,10 @@ dev = [
 ]
 
 [project.scripts]
-rpg-agent-proxy = "rpg_agent.proxy:main"
+rachel-proxy = "rachel.proxy:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/rpg_agent"]
+packages = ["src/rachel"]
 
 [tool.pyright]
 venvPath = "."

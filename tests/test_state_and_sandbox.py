@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from rpg_agent.core.state import SessionStateStore
-from rpg_agent.sandbox.sandbox import execute_sandbox
+from rachel.core.state import SessionStateStore
+from rachel.sandbox.sandbox import execute_sandbox
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +117,7 @@ def test_list_sessions(tmp_path):
 # Sandbox tests
 # ---------------------------------------------------------------------------
 
-from rpg_agent.sandbox.sandbox import PythonSandboxEngine, V8SandboxEngine
+from rachel.sandbox.sandbox import PythonSandboxEngine, V8SandboxEngine
 
 # --- Python Engine Tests ---
 
@@ -247,7 +247,7 @@ def test_v8_sandbox_non_dict_state_reverts():
 # Session tests
 # ---------------------------------------------------------------------------
 
-from rpg_agent.core.session import (
+from rachel.core.session import (
     resolve_session_id,
     extract_system_suffix_hash,
     extract_session_from_proxy_annotation,
@@ -346,7 +346,7 @@ def test_resolve_session_id_4_levels():
 
 
 def test_roll_xdy_python_tool():
-    from rpg_agent.agent.tools import make_tools, get_dice_interpretation
+    from rachel.agent.tools import make_tools, get_dice_interpretation
     
     interp = get_dice_interpretation(4, {4: "crit fail", 8: "fail", 16: "success", 18: "crit success"})
     assert interp == "crit fail"
@@ -369,7 +369,7 @@ def test_roll_xdy_python_tool():
 
 
 def test_roll_xdy_in_v8_sandbox():
-    from rpg_agent.sandbox.v8_engine import V8SandboxEngine
+    from rachel.sandbox.v8_engine import V8SandboxEngine
     engine = V8SandboxEngine()
     code = """
     var res = roll_xdy(3, 6, {"4": "crit fail", "8": "fail", "16": "success", "18": "crit success"});
@@ -385,7 +385,7 @@ def test_roll_xdy_in_v8_sandbox():
 
 
 def test_roll_xdy_in_python_sandbox():
-    from rpg_agent.sandbox.python_engine import PythonSandboxEngine
+    from rachel.sandbox.python_engine import PythonSandboxEngine
     engine = PythonSandboxEngine()
     code = """
 res = roll_xdy(3, 6, {4: "crit fail", 8: "fail", 16: "success", 18: "crit success"})

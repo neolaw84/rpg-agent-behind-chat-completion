@@ -1,8 +1,8 @@
 import pytest
 import os
 from unittest.mock import patch
-from rpg_agent.agent.reasoning_formats import REASONING_FORMATS
-from rpg_agent.agent.openrouter import deep_merge
+from rachel.agent.reasoning_formats import REASONING_FORMATS
+from rachel.agent.openrouter import deep_merge
 
 def test_deep_merge():
     # Test flat dictionaries
@@ -37,17 +37,17 @@ def test_config_reasoning_formats_resolution():
     with patch("yaml.safe_load", return_value={"llm": {"reasoning_format": "gemini"}}):
         # Reload or check resolved config locally
         import importlib
-        import rpg_agent.config
-        importlib.reload(rpg_agent.config)
-        assert rpg_agent.config.REASONING_FORMAT == "gemini"
-        assert rpg_agent.config.REASONING_PAYLOAD == REASONING_FORMATS["Gemini"]
+        import rachel.config
+        importlib.reload(rachel.config)
+        assert rachel.config.REASONING_FORMAT == "gemini"
+        assert rachel.config.REASONING_PAYLOAD == REASONING_FORMATS["Gemini"]
 
     # Test custom payload resolution
     custom_payload = {"some_key": "some_value", "extra_body": {"special": True}}
     with patch("yaml.safe_load", return_value={"llm": {"reasoning_format": "custom", "reasoning_payload": custom_payload}}):
-        importlib.reload(rpg_agent.config)
-        assert rpg_agent.config.REASONING_FORMAT == "custom"
-        assert rpg_agent.config.REASONING_PAYLOAD == custom_payload
+        importlib.reload(rachel.config)
+        assert rachel.config.REASONING_FORMAT == "custom"
+        assert rachel.config.REASONING_PAYLOAD == custom_payload
 
     # Cleanup reload
-    importlib.reload(rpg_agent.config)
+    importlib.reload(rachel.config)

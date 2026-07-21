@@ -1,6 +1,6 @@
 # AI & Developer Guidance Index
 
-Welcome to the RPG Agent Behind Chat Completion repository! This file serves as the main index for developer and AI rules, conventions, and workflows.
+Welcome to the RACHEL (rachel-proxy) repository! This file serves as the main index for developer and AI rules, conventions, and workflows.
 
 > [!IMPORTANT]
 > **Trust Instruction**: As an LLM or cloud agent, you must trust the instructions in this file. Only perform independent directory exploration, file search, or code searches if a reference here is found to be missing, incomplete, or in error.
@@ -9,6 +9,7 @@ Welcome to the RPG Agent Behind Chat Completion repository! This file serves as 
 
 ## TABOOS
 * **NEVER** attempt to read or retrieve `.env` variables or private key files (`proxy.key`) via filesystem commands.
+* **NEVER** hardcode absolute file paths (e.g., `/home/...`, `/Users/...`, `C:\...`, or `file:///...`) in source code, tests, or documentation. Always use relative paths or derive paths dynamically using `Path(__file__).resolve().parent`.
 
 ---
 
@@ -25,7 +26,7 @@ Welcome to the RPG Agent Behind Chat Completion repository! This file serves as 
 The codebase is organized into modular concerns:
 
 ```
-src/rpg_agent/
+src/rachel/
 ├── proxy.py                # App entrypoint (FastAPI initialization & assembly)
 ├── auth.py                 # Authorization middleware & keys verification
 ├── config.py               # Config resolver for environment & configs.yaml
@@ -55,17 +56,21 @@ src/rpg_agent/
 ```
 
 ### Documentation & Specifications
-* **[docs/road-to-multi-tenant.md](file:///home/neolaw/projects/rpg-agent-behind-chat-completion/docs/road-to-multi-tenant.md)**: Architectural roadmap, design decisions, and implementation plan for multi-tenant cloud deployment (GCP Cloud Run + Neon PostgreSQL).
-* **[configs.yaml](file:///home/neolaw/projects/rpg-agent-behind-chat-completion/configs.yaml)**: Preserves state limits (`num_states_to_track`), sandbox timeout limits (`timeout_seconds`), LangGraph limits (`max_iterations`), LLM endpoints/models, and narrative trigger/orchestration parameters. See [docs/configurations.md](file:///home/neolaw/projects/rpg-agent-behind-chat-completion/docs/configurations.md) for a detailed player-facing settings guide.
-* **[pyproject.toml](file:///home/neolaw/projects/rpg-agent-behind-chat-completion/pyproject.toml)**: Defines package dependency specifications and Hatch building config.
+* **[docs/why-rachel.md](why-rachel.md)**: Core features, benefits, assumptions, and design philosophies of RACHEL.
+* **[docs/all-about-sessions.md](all-about-sessions.md)**: Detailed guide on session ID resolution hierarchy, turn key state tracking, and session CRUD API endpoints.
+* **[docs/all-about-auth.md](all-about-auth.md)**: Comprehensive guide detailing the three authentication & authorization boundaries (Chat Client, Admin Panel/SSO, LLM Providers/PKCE/BYOK).
+* **[docs/configurations.md](configurations.md)**: Detailed settings reference for `configs.yaml` (state limits, sandbox timeout, LangGraph iterations, and narrative triggers).
+* **[docs/road-to-multi-tenant.md](road-to-multi-tenant.md)**: Architectural roadmap, design decisions, and implementation plan for multi-tenant cloud deployment (GCP Cloud Run + Neon PostgreSQL).
+* **[configs.yaml](../configs.yaml)**: Preserves state limits (`num_states_to_track`), sandbox timeout limits (`timeout_seconds`), LangGraph limits (`max_iterations`), LLM endpoints/models, and narrative trigger/orchestration parameters.
+* **[pyproject.toml](../pyproject.toml)**: Defines package dependency specifications and Hatch building config.
 
 ### Supported Environment Variables
 Only the following environment variables are supported for configuration:
 * `OPENROUTER_API_KEY`: Secret API key for the completions provider (required).
-* `RPG_AGENT_PROXY_KEY`: Custom password/API key for authenticated proxy clients (optional).
+* `RACHEL_PROXY_KEY`: Custom password/API key for authenticated proxy clients (optional).
 * `OPENROUTER_BASE_URL`: Completion endpoint URL override (optional).
 * `DEFAULT_MODEL`: Default model fallback (optional).
-* `RPG_AGENT_INCLUDE_REASONING`: Enable/disable reasoning content payloads (optional).
+* `RACHEL_INCLUDE_REASONING`: Enable/disable reasoning content payloads (optional).
 
 *All other settings must be configured strictly inside `configs.yaml`.*
 
@@ -110,7 +115,7 @@ Ensure you copy `.env.example` to `.env` and set a valid `OPENROUTER_API_KEY` be
 source venv/bin/activate
 
 # Run the proxy (auto-reloads on code changes)
-PYTHONPATH=src uvicorn rpg_agent.proxy:app --host 0.0.0.0 --port 8000 --reload
+PYTHONPATH=src uvicorn rachel.proxy:app --host 0.0.0.0 --port 8000 --reload
 ```
 * The proxy listens at `http://localhost:8000/v1/chat/completions` and forwards requests to OpenRouter.
 * Every incoming payload is appended verbatim to `data/example-janitorai-payload.md`.

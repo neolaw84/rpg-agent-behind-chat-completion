@@ -1,7 +1,7 @@
 import json
 import pytest
 from unittest.mock import MagicMock, patch
-from rpg_agent.core.state import PostgresSessionStorage, _get_pg_pool
+from rachel.core.state import PostgresSessionStorage, _get_pg_pool
 
 
 @pytest.fixture
@@ -15,9 +15,9 @@ def mock_pg():
         mock_cur = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cur
         # Reset the global pool cache so it initializes again
-        with patch("rpg_agent.core.state._pg_pool", None):
+        with patch("rachel.core.state._pg_pool", None):
             # Patch config credentials so pool creation doesn't fail
-            with patch("rpg_agent.config.DATABASE_URL", "postgresql://mock_user:mock_pass@localhost/mock_db"):
+            with patch("rachel.config.DATABASE_URL", "postgresql://mock_user:mock_pass@localhost/mock_db"):
                 yield {
                     "pool": mock_pool,
                     "conn": mock_conn,

@@ -5,7 +5,7 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PORT=7860 \
-    RPG_AGENT_SANDBOX_ENGINE=v8
+    RACHEL_SANDBOX_ENGINE=v8
 
 # Set work directory
 WORKDIR /app
@@ -29,4 +29,4 @@ USER appuser
 EXPOSE 7860
 
 # Run the proxy CLI
-CMD ["rpg-agent-proxy"]
+CMD ["rachel-proxy"]
