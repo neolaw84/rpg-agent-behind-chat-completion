@@ -8,6 +8,21 @@ from rpg_agent.sandbox.sandbox import get_sandbox_engine
 
 logger = logging.getLogger(__name__)
 
+def get_dice_interpretation(total: int, interpretation: dict[int | str, str]) -> str:
+    """Evaluate dice roll total against an interpretation dictionary mapping integer upper bounds to descriptions."""
+    sorted_items = []
+    if isinstance(interpretation, dict):
+        for k, v in interpretation.items():
+            try:
+                sorted_items.append((int(k), str(v)))
+            except (ValueError, TypeError):
+                pass
+    sorted_items.sort(key=lambda x: x[0])
+    for k, v in sorted_items:
+        if total <= k:
+            return v
+    return sorted_items[-1][1] if sorted_items else ""
+
 def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
     """Return a list of LangChain tools that share ``state_container`` by
     reference so that every tool call sees the latest state.
@@ -105,18 +120,19 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
     )
 
     @tool
-    def roll_xdy(num_dice: int, num_sides: int) -> str:
-        """Roll num_dice dice each with num_sides sides and return the results."""
+    def roll_xdy(num_dice: int, num_sides: int, interpretation: dict[int | str, str]) -> dict[str, Any]:
+        """Roll num_dice dice each with num_sides sides and return a dictionary with rolls, total, and interpretation."""
         rolls = [random.randint(1, num_sides) for _ in range(num_dice)]
         total = sum(rolls)
-        result = f"Rolled {num_dice}d{num_sides}: {rolls} = {total}"
-        logger.info("Dice roll: %s", result)
+        interp = get_dice_interpretation(total, interpretation)
+        interp_str = f"interpretation of the dice roll is '{interp}'"
+        result = {
+            "rolls": rolls,
+            "total": total,
+            "interpretation": interp_str,
+        }
+        logger.info("Dice roll: Rolled %dd%d: %s = %d (%s)", num_dice, num_sides, rolls, total, interp_str)
         return result
-
-    @tool
-    def random_int(min_val: int, max_val: int) -> int:
-        """Return a random integer N such that min_val <= N <= max_val."""
-        return random.randint(min_val, max_val)
 
     @tool
     def update_plan(checklist: list[Any]) -> str:
@@ -202,4 +218,4 @@ def make_tools(state_container: dict[str, Any], sandbox_timeout: float):
         logger.info("Summary appended: %s", text)
         return "[Summary appended successfully]"
 
-    return [execute_code_sandbox, roll_xdy, random_int, update_plan, update_plan_status, append_summary]
+    return [execute_code_sandbox, roll_xdy, update_plan, update_plan_status, append_summary]

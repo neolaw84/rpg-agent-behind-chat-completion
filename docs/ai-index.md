@@ -54,7 +54,8 @@ src/rpg_agent/
     └── index.html          # SPA dashboard front-end page
 ```
 
-### Configuration Files
+### Documentation & Specifications
+* **[docs/road-to-multi-tenant.md](file:///home/neolaw/projects/rpg-agent-behind-chat-completion/docs/road-to-multi-tenant.md)**: Architectural roadmap, design decisions, and implementation plan for multi-tenant cloud deployment (GCP Cloud Run + Neon PostgreSQL).
 * **[configs.yaml](file:///home/neolaw/projects/rpg-agent-behind-chat-completion/configs.yaml)**: Preserves state limits (`num_states_to_track`), sandbox timeout limits (`timeout_seconds`), LangGraph limits (`max_iterations`), LLM endpoints/models, and narrative trigger/orchestration parameters. See [docs/configurations.md](file:///home/neolaw/projects/rpg-agent-behind-chat-completion/docs/configurations.md) for a detailed player-facing settings guide.
 * **[pyproject.toml](file:///home/neolaw/projects/rpg-agent-behind-chat-completion/pyproject.toml)**: Defines package dependency specifications and Hatch building config.
 
@@ -129,7 +130,7 @@ Resolved per-request using a four-level hierarchy (highest → lowest priority):
 ### Turn Key
 Each distinct point in a conversation is identified by a **turn key**:
 ```
-turn_key = SHA-256[:24](session_id + "\0" + last_user_msg_content + "\0" + penultimate_assistant_msg_content)
+turn_key = SHA-256[:24](session_id + "\0" + epoch_in_millis)
 ```
 The turn key is injected into the **message text** of every response, prepended as a plain-text annotation:
 ```

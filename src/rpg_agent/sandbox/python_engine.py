@@ -74,6 +74,19 @@ _SAFE_BUILTINS: dict[str, Any] = {
     "__import__": _safe_import,
 }
 
+def _sandbox_roll_xdy(num_dice: int, num_sides: int, interpretation: dict[int | str, str]) -> dict[str, Any]:
+    from rpg_agent.agent.tools import get_dice_interpretation
+    rolls = [random.randint(1, num_sides) for _ in range(num_dice)]
+    total = sum(rolls)
+    interp = get_dice_interpretation(total, interpretation)
+    interp_str = f"interpretation of the dice roll is '{interp}'"
+    print(f"Rolled {num_dice}d{num_sides}: {rolls} = {total}\n{interp_str}")
+    return {
+        "rolls": rolls,
+        "total": total,
+        "interpretation": interp_str,
+    }
+
 _SAFE_GLOBALS: dict[str, Any] = {
     "__builtins__": _SAFE_BUILTINS,
     "math": math,
@@ -85,6 +98,7 @@ _SAFE_GLOBALS: dict[str, Any] = {
     "functools": functools,
     "re": re,
     "string": string,
+    "roll_xdy": _sandbox_roll_xdy,
 }
 
 def _python_worker(

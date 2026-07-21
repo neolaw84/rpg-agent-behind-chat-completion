@@ -31,6 +31,45 @@ def _v8_worker(
             _logs.push(msg);
         }
     };
+    function roll_xdy(numDice, numSides, interpretation) {
+        var rolls = [];
+        var total = 0;
+        for (var i = 0; i < numDice; i++) {
+            var r = Math.floor(Math.random() * numSides) + 1;
+            rolls.push(r);
+            total += r;
+        }
+        var keys = [];
+        if (interpretation && typeof interpretation === 'object') {
+            for (var k in interpretation) {
+                if (Object.prototype.hasOwnProperty.call(interpretation, k)) {
+                    var numKey = Number(k);
+                    if (!isNaN(numKey)) {
+                        keys.push(numKey);
+                    }
+                }
+            }
+        }
+        keys.sort(function(a, b) { return a - b; });
+        var interp = "";
+        for (var j = 0; j < keys.length; j++) {
+            if (total <= keys[j]) {
+                interp = interpretation[keys[j]] || interpretation[String(keys[j])];
+                break;
+            }
+        }
+        if (!interp && keys.length > 0) {
+            var maxKey = keys[keys.length - 1];
+            interp = interpretation[maxKey] || interpretation[String(maxKey)];
+        }
+        var interpStr = "interpretation of the dice roll is '" + interp + "'";
+        console.log("Rolled " + numDice + "d" + numSides + ": [" + rolls.join(", ") + "] = " + total + "\\n" + interpStr);
+        return {
+            rolls: rolls,
+            total: total,
+            interpretation: interpStr
+        };
+    }
     """
 
     is_wrapper = isinstance(state, dict) and "state" in state and "hidden_state" in state

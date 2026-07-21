@@ -246,3 +246,24 @@ def test_import_session_success(client, auth_headers, tmp_path):
         assert turn_data["after"]["plan"] == ["run"]
         assert turn_data["after"]["summary"] == ""  # normalized from default
 
+
+def test_compute_turn_key_mocked_time():
+    """Verify compute_turn_key uses time.time_ns and generates unique keys across swipes."""
+    from rpg_agent.core.session import compute_turn_key
+
+    session_id = "test-session-123"
+    
+    # Mock time.time_ns to 1,700,000,000,000,000,000 ns (1700000000000 ms)
+    with patch("time.time_ns", return_value=1_700_000_000_000_000_000):
+        key1 = compute_turn_key(session_id)
+        assert len(key1) == 24
+
+    # Second swipe: 500 ms later (1,700,000,000,500,000,000 ns -> 1700000000500 ms)
+    with patch("time.time_ns", return_value=1_700_000_000_500_000_000):
+        key2 = compute_turn_key(session_id)
+        assert len(key2) == 24
+
+    # Keys must be distinct because timestamps differ (swipe scenario)
+    assert key1 != key2
+
+

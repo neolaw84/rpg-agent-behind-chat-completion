@@ -23,6 +23,7 @@ block that the proxy prepends to every assistant reply.
 
 import hashlib
 import re
+import time
 from typing import Any
 
 
@@ -185,46 +186,27 @@ def strip_proxy_annotations(messages: list[dict[str, Any]]) -> list[dict[str, An
 # ---------------------------------------------------------------------------
 
 
-def compute_turn_key(session_id: str, messages: list[dict[str, Any]]) -> str:
-    """Compute a stable turn key for the current point in the conversation.
+def compute_turn_key(session_id: str, messages: list[dict[str, Any]] | None = None) -> str:
+    """Compute a unique turn key for the current request.
 
-    The turn key uniquely identifies a specific turn within a session:
+    The turn key uniquely identifies a specific turn execution within a session:
 
-        turn_key = SHA-256[:24](session_id + NUL + last_user_content + NUL + penultimate_assistant_content)
+        turn_key = SHA-256[:24](session_id + NUL + epoch_in_millis)
 
-    **Best-effort only**: users can edit any message (system, user, or
-    assistant) or retry from any prior turn.  The proxy cannot detect or
-    prevent these edits.  The turn key will differ after an edit, which
-    means any cached state for the old key becomes stale.  All state indexed
-    by turn key must therefore be re-derivable from the ``messages`` array
-    alone on a cold start.
+    Using the system timestamp in milliseconds ensures that every request—including
+    retries, swipes, and branching from past points—generates a distinct turn key.
+    This prevents state overwrites when swiping and preserves historical states
+    for all swipes.
 
     Args:
         session_id: Already-resolved session identifier for this chat.
-        messages: Full ``messages`` list from the incoming payload.
+        messages: Full ``messages`` list from the incoming payload (optional/unused).
 
     Returns:
         A 24-character lowercase hex string.
     """
-    last_user_content = ""
-    penultimate_assistant_content = ""
-
-    # Walk backwards to find the last user message and the assistant message
-    # that immediately precedes it.
-    last_user_idx: int | None = None
-    for i in range(len(messages) - 1, -1, -1):
-        if messages[i].get("role") == "user":
-            last_user_content = messages[i].get("content") or ""
-            last_user_idx = i
-            break
-
-    if last_user_idx is not None:
-        for i in range(last_user_idx - 1, -1, -1):
-            if messages[i].get("role") == "assistant":
-                penultimate_assistant_content = messages[i].get("content") or ""
-                break
-
-    raw = "\x00".join([session_id, last_user_content, penultimate_assistant_content])
+    epoch_ms = time.time_ns() // 1_000_000
+    raw = f"{session_id}\x00{epoch_ms}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 

@@ -62,10 +62,14 @@ def test_get_tools_schema_filtering():
     names = [s["function"]["name"] for s in schemas]
     assert "execute_code_sandbox" in names
     assert "roll_xdy" in names
-    assert "random_int" in names
+    assert "random_int" not in names
     assert "update_plan" not in names
     assert "update_plan_status" in names
     assert "append_summary" not in names
+
+    roll_schema = next(s["function"] for s in schemas if s["function"]["name"] == "roll_xdy")
+    assert "interpretation" in roll_schema["parameters"]["properties"]
+    assert "interpretation" in roll_schema["parameters"]["required"]
 
     # Test include plan
     schemas = get_tools_schema("v8", include_plan=True)

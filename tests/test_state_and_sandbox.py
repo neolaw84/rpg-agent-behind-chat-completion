@@ -345,3 +345,59 @@ def test_resolve_session_id_4_levels():
     assert resolve_session_id(messages_no_asst) == (u_hash, "assistant-suffix-hash+username-hash")
 
 
+def test_roll_xdy_python_tool():
+    from rpg_agent.agent.tools import make_tools, get_dice_interpretation
+    
+    interp = get_dice_interpretation(4, {4: "crit fail", 8: "fail", 16: "success", 18: "crit success"})
+    assert interp == "crit fail"
+    interp_8 = get_dice_interpretation(5, {4: "crit fail", 8: "fail", 16: "success", 18: "crit success"})
+    assert interp_8 == "fail"
+
+    state_container = {"rpg_state": {}}
+    tools = {t.name: t for t in make_tools(state_container, 2.0)}
+    assert "random_int" not in tools
+    
+    res = tools["roll_xdy"].invoke({
+        "num_dice": 3,
+        "num_sides": 6,
+        "interpretation": {4: "crit fail", 8: "fail", 16: "success", 18: "crit success"}
+    })
+    assert isinstance(res, dict)
+    assert len(res["rolls"]) == 3
+    assert res["total"] == sum(res["rolls"])
+    assert res["interpretation"].startswith("interpretation of the dice roll is '")
+
+
+def test_roll_xdy_in_v8_sandbox():
+    from rpg_agent.sandbox.v8_engine import V8SandboxEngine
+    engine = V8SandboxEngine()
+    code = """
+    var res = roll_xdy(3, 6, {"4": "crit fail", "8": "fail", "16": "success", "18": "crit success"});
+    state.res = res;
+    """
+    updated_state, output = engine.execute(code, {}, 2.0)
+    assert "res" in updated_state
+    res = updated_state["res"]
+    assert isinstance(res["rolls"], list) and len(res["rolls"]) == 3
+    assert res["total"] == sum(res["rolls"])
+    assert res["interpretation"].startswith("interpretation of the dice roll is '")
+    assert "interpretation of the dice roll is '" in output
+
+
+def test_roll_xdy_in_python_sandbox():
+    from rpg_agent.sandbox.python_engine import PythonSandboxEngine
+    engine = PythonSandboxEngine()
+    code = """
+res = roll_xdy(3, 6, {4: "crit fail", 8: "fail", 16: "success", 18: "crit success"})
+state['res'] = res
+"""
+    updated_state, output = engine.execute(code, {}, 2.0)
+    assert "res" in updated_state
+    res = updated_state["res"]
+    assert isinstance(res["rolls"], list) and len(res["rolls"]) == 3
+    assert res["total"] == sum(res["rolls"])
+    assert res["interpretation"].startswith("interpretation of the dice roll is '")
+    assert "interpretation of the dice roll is '" in output
+
+
+

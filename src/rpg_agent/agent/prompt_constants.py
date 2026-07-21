@@ -18,7 +18,7 @@ CLEANUP_TASK_TEMPLATE = (
 
 PROGRESS_STORY_TASK = (
     "Progress the story and events. You should perform game mechanic math, stat changes, "
-    "or outcome calculations using `execute_code_sandbox`, `roll_xdy`, or `random_int` "
+    "or outcome calculations using `execute_code_sandbox` or `roll_xdy` "
     "rather than calculating them textually in your response."
 )
 
@@ -40,7 +40,7 @@ STATE_SECTION_BASIC = (
 )
 
 SANDBOX_INFO_V8 = (
-    "- You have access to a JavaScript code execution sandbox (`execute_code_sandbox`) and dice rolling tools (`roll_xdy`).\n"
+    "- You have access to a JavaScript code execution sandbox (`execute_code_sandbox`) and dice rolling tools (`roll_xdy`). Note that `roll_xdy` can also be called directly within the JavaScript sandbox.\n"
     "- The JavaScript sandbox allows you to read/mutate the global `state` and `hidden_state` objects. Standard console methods like `console.log` work.\n"
     "  Note: If the sandbox execution fails (due to syntax errors, exceptions, timeouts, or replacing `state` or `hidden_state` with a non-object), any changes are discarded and the original pre-execution state is fully restored.\n"
     "- **Syntax Rules**:\n"
@@ -72,6 +72,11 @@ SYSTEM_INSTRUCTION_TEMPLATE = (
     "### Tool & State Mapping Rules\n"
     "- **State Modifications**: Use the `execute_code_sandbox` tool to modify the **State** (`state`) and **Hidden State** (`hidden_state`).\n"
     "{summary_plan_access_guidelines}\n"
+    "### True Randomness Guidelines\n"
+    "- **Provide Interpretation Mapping with Dice Rolls**: When calling `roll_xdy(num_dice, num_sides, interpretation)`:\n"
+    "  1. Calculate roll range: min = `num_dice`, max = `num_dice * num_sides`.\n"
+    "  2. Construct mandatory `interpretation` mapping upper-bound integer thresholds to outcome strings. The highest key MUST equal `max_roll`.\n"
+    "  3. Example for 3d6 (range 3 to 18): `roll_xdy(3, 6, {{\\\"4\\\": \\\"critical failure\\\", \\\"8\\\": \\\"failure\\\", \\\"16\\\": \\\"success\\\", \\\"18\\\": \\\"critical success\\\"}})`.\n"
     "### Sandbox Execution Constraints\n"
     "{sandbox_info}"
     "{state_constraints_info}"
@@ -83,7 +88,7 @@ SYSTEM_INSTRUCTION_TEMPLATE = (
     "- Current Iteration: {current_iteration} of {max_iterations}.\n"
     "- Remaining Tool-Calling Budget: {rem_iterations}.\n"
     "- If you reach iteration {max_iterations}, no further tool calls will be executed. You must formulate your final response based on the state at that point.\n"
-    "- Feel free to use the sandbox (`execute_code_sandbox`), dice rolling (`roll_xdy`), or random number generator (`random_int`) tools for mathematics, determining random events, and chances."
+    "- Feel free to use the sandbox (`execute_code_sandbox`) or dice rolling (`roll_xdy`) tools for mathematics, determining random events, and chances."
     "{h2_instruction_blocks}"
 )
 

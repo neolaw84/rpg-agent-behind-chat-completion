@@ -47,9 +47,9 @@ def get_tools_schema(
         "function": {
             "name": "roll_xdy",
             "description": (
-                "Roll num_dice dice each with num_sides sides and return the results. "
-                "For example, roll_xdy(3, 6) simulates 3d6. "
-                "Returns a string describing the rolls and the sum."
+                "Roll num_dice dice each with num_sides sides and evaluate against an interpretation dictionary. "
+                "For example, roll_xdy(3, 6, {4: 'critical failure', 8: 'failure', 16: 'success', 18: 'critical success'}) simulates 3d6. "
+                "Returns a dictionary with 'rolls' (array of individual dice numbers), 'total' (sum), and 'interpretation' ('interpretation of the dice roll is \'<value>\'')."
             ),
             "parameters": {
                 "type": "object",
@@ -61,30 +61,20 @@ def get_tools_schema(
                     "num_sides": {
                         "type": "integer",
                         "description": "Number of sides on each die."
-                    }
-                },
-                "required": ["num_dice", "num_sides"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "random_int",
-            "description": "Return a random integer N such that min_val <= N <= max_val.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "min_val": {
-                        "type": "integer",
-                        "description": "Minimum value (inclusive)."
                     },
-                    "max_val": {
-                        "type": "integer",
-                        "description": "Maximum value (inclusive)."
+                    "interpretation": {
+                        "type": "object",
+                        "description": (
+                            "Dictionary mapping upper-bound integer roll sums to interpretation strings. "
+                            "Each key represents the MAXIMUM roll sum for that outcome tier, up to the maximum possible roll sum (num_dice * num_sides). "
+                            "Example for 3d6 (possible sum 3 to 18): {\"4\": \"critical failure\", \"8\": \"failure\", \"16\": \"success\", \"18\": \"critical success\"}."
+                        ),
+                        "additionalProperties": {
+                            "type": "string"
+                        }
                     }
                 },
-                "required": ["min_val", "max_val"]
+                "required": ["num_dice", "num_sides", "interpretation"]
             }
         }
     },
