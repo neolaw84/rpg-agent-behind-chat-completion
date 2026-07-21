@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rachel-proxy"
-version = "0.1.0"
+version = "0.1.0a0"
 description = "RACHEL (Rpg Agent CHat Evaluation Loop) - OpenAI-compatible Chat Completion API proxy with stateful LangGraph agent and V8 code sandbox"
 readme = "README.md"
 requires-python = ">=3.12"
