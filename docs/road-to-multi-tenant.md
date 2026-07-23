@@ -32,9 +32,9 @@ RACHEL supports two runtime operational modes determined by configuration (`MULT
 | :--- | :--- | :--- |
 | **Primary Audience** | Tech-savvy users running locally on personal PCs | **Mobile-first non-tech users** (no PC / can't run Python) & service providers |
 | **Admin Auth** | Local Proxy Key (`RACHEL_PROXY_KEY`) | Stateless JWT Validation via external Auth provider (Clerk, Auth0, etc.) |
-| **API Auth (`/v1/chat/completions`)** | Local Proxy Key (`Authorization: Bearer <key>`) | Tenant Proxy Keys (`sk-tenant-...`) managed in Admin Console |
-| **State Storage Engine** | Local files (`data/states`) or SQLite | **Neon PostgreSQL** indexed by `tenant_id` |
-| **Credentials Vault** | Encrypted local file (`proxy.key`) / `.env` | AES-256-GCM encrypted in Neon DB via GCP Secret Manager master key |
+| **API Auth (`/v1/chat/completions`)** | DB-backed Client Keys (Auto-seeded with bootstrap `RACHEL_PROXY_KEY`, plus custom keys) | Tenant Proxy Keys (`sk-tenant-...`) managed in Admin Console |
+| **State Storage Engine** | SQLite (using unified relational schema layout) | **Neon PostgreSQL** indexed by `tenant_id` |
+| **Credentials Vault** | Envelope encrypted in SQLite (derived KEK via `RACHEL_PROXY_KEY`) | AES-256-GCM envelope encrypted in Neon DB (derived KEK via OIDC `sub` + `MasterSecret`) |
 
 In **Multi-Tenant Cloud Mode**, client account lifecycle (user sign-up, user profiles, identity management) is handled outside this repository by an external Auth platform (e.g., Clerk, Auth0, Supabase Auth, Firebase Auth).
 
@@ -55,10 +55,16 @@ Users select **one Active Provider** in their Admin Console GUI from the availab
 
 When `/v1/chat/completions` is invoked, RACHEL forwards the incoming `model` parameter directly to the user's selected **Active Provider**.
 
-#### B. Storage & Encryption Model by Mode
-- **Local Standalone Mode**: Credentials (API keys, PKCE tokens) configured via the Admin Console GUI are stored locally in an encrypted file (`proxy.key`) or local SQLite database.
+#### B. Storage & Envelope Encryption Model (Parallelized)
+To keep codebase implementation clean and uniform, both modes utilize **AES-256-GCM Envelope Encryption (DEK/KEK)** with key derivation via **HKDF-SHA256**:
+
+- **Local Standalone Mode**:
+  $$\text{KEK} = \text{HKDF-SHA256}(\text{RACHEL\_PROXY\_KEY}, \text{salt}=\text{"local"}, \text{info}=\text{"local\_admin"})$$
+  - **Admin Console Access**: The user enters their `RACHEL_PROXY_KEY` to authenticate the dashboard, which is then used to construct the KEK and decrypt the Data Encryption Key (DEK).
+  - **API Execution**: Incoming requests using `RACHEL_PROXY_KEY` or custom keys unwrap the DEK in-memory.
+
 - **Multi-Tenant Cloud Mode (Tenant-Derived Envelope Encryption)**:
-  To prevent service provider admins or DB leaks from exposing raw user keys in bulk, credentials in Neon PostgreSQL are encrypted using **AES-256-GCM Envelope Encryption (DEK/KEK)** with key derivation via **HKDF-SHA256**:
+  To prevent service provider admins or DB leaks from exposing raw user keys in bulk, credentials in Neon PostgreSQL are encrypted using:
   $$\text{KEK} = \text{HKDF-SHA256}(\text{MasterSecret}, \text{salt}=\text{tenant\_id}, \text{info}=\text{SSO\_sub})$$
   - **Immutable Identity Guarantee**: In OpenID Connect (OIDC / OAuth2 with Google, Facebook, Discord, etc.), the `sub` (subject) claim is **globally unique and immutable** for a user account forever. Therefore, **decryption remains 100% valid across log-offs, log-ins, session expirations, and device switches**.
   - **Admin Console Access**: When a user logs in from any browser or device, RACHEL validates their SSO JWT, reconstructs the KEK from `(MasterSecret + tenant_id + SSO_sub)`, and unwraps the tenant's Data Encryption Key (DEK).
@@ -127,6 +133,30 @@ By storing `turns_data` as a denormalized JSON blob directly inside the `session
 
 ---
 
+### 2.6 Build-Time & Packaging-Time Differentiation
+
+To optimize bundle sizes, protect cloud environments from local auth bypasses, and prevent dependency bloat in the local PC package, RACHEL employs build-time and packaging-time separation:
+
+#### A. Frontend (Client-Side JS/HTML)
+* **Strategy**: The client-side dashboard code is compiled into two distinct builds using environment flags (e.g., `import.meta.env.VITE_MULTI_TENANT`) and compiler dead-code elimination:
+  * **Local Build (`dist/local`)**: Strips out external OIDC/SSO widgets, script tags (e.g., Clerk/Auth0), and redirection callback code. Renders the local password prompt overlay.
+  * **Cloud Build (`dist/cloud`)**: Strips out the local password inputs, overlays, and manual token-saving UI elements. Enforces OIDC/SSO login and redirection paths.
+* **Server-Side Mounting**: The FastAPI server mount path serves the static folder matching the runtime operational mode:
+  ```python
+  if settings.MULTI_TENANT_MODE:
+      app.mount("/", StaticFiles(directory="dist/cloud", html=True))
+  else:
+      app.mount("/", StaticFiles(directory="dist/local", html=True))
+  ```
+
+#### B. Backend (Python/FastAPI)
+* **Dependency Extras (`pyproject.toml`)**: Heavy cloud-specific packages (such as `asyncpg`, `pyjwt`, and `google-cloud-secret-manager`) are placed in optional dependency groups (e.g. `[project.optional-dependencies] cloud`).
+  * **Local Package Build**: Built via `pip install .` to exclude cloud dependencies and minimize the desktop application `.zip` footprint.
+  * **Cloud Container Build**: Built via `pip install .[cloud]` inside the production Dockerfile to include database drivers and SSO cryptographic tools.
+* **Conditional Backend Imports**: To prevent runtime import failures in local mode where cloud packages are missing, modules for Postgres connections or SSO signature checks are dynamically imported behind runtime `if settings.MULTI_TENANT_MODE:` gates.
+
+---
+
 ## 3. Brainstorming & Discarded Ideas Log
 
 During architectural design, several alternatives were evaluated and intentionally discarded:
@@ -163,12 +193,13 @@ During architectural design, several alternatives were evaluated and intentional
 - [ ] **Unified Database Layer (`src/rachel/core/db.py`)**: Define SQLAlchemy/SQLModel models for `tenants`, `tenant_api_keys`, `tenant_credentials`, `tenant_settings`, and `sessions` (including `turns_data` JSON blob).
 - [ ] **Unified Relational Storage Strategy (`RelationalSessionStorage`)**: Refactor `BaseSessionStorage` in `src/rachel/core/state.py` to use `RelationalSessionStorage`. Connects to `sqlite:///data/rpg_agent.sqlite3` in Local Standalone Mode (`tenant_id = 'local'`) and Neon PostgreSQL in Multi-Tenant Cloud Mode.
 - [ ] **In-Memory Python LRU Eviction**: Implement Python `dict` key popping (`len > num_states_to_track`) before SQL `UPSERT` execution.
+- [ ] **Bootstrap Key Auto-Seeding (Local Mode)**: Auto-seed the SQLite `tenant_api_keys` table on database initialization with `RACHEL_PROXY_KEY` as a default client key for the `local` tenant.
 
-### Phase 3: Multi-Tenant Identity, Proxy Keys & Envelope Encryption (Cloud Mode)
+### Phase 3: Multi-Tenant Identity, Proxy Keys & Envelope Encryption (Cloud Mode / Universal Key Management)
 - [ ] **Stateless JWT SSO Auth Middleware**: Add JWKS-based JWT validation dependency in `src/rachel/auth.py` for Admin Console routes when `MULTI_TENANT_MODE=true`.
-- [ ] **Tenant Proxy Key (`sk-tenant-...`) Management**: Add API endpoints to generate, list, and revoke proxy keys in `src/rachel/routes/system.py`.
-- [ ] **Proxy Key Validation**: Update `completions.py` authentication dependency (`require_proxy_key`) to validate `sk-tenant-...` against `tenant_api_keys` and bind `tenant_id` to request context.
-- [ ] **Tenant-Derived Envelope Encryption (DEK/KEK)**: Implement HKDF key derivation: $\text{KEK} = \text{HKDF-SHA256}(\text{MasterSecret}, \text{salt}=\text{tenant\_id}, \text{info}=\text{SSO\_sub})$. Admin Console unwraps DEK using SSO `sub`; API calls unwrap DEK in memory using `sk-tenant-...`.
+- [ ] **Client Proxy Key Management (Universal)**: Add API endpoints in `src/rachel/routes/system.py` to generate, list, and revoke database-backed client proxy keys (with prefix `sk-local-...` in Local Mode and `sk-tenant-...` in Cloud Mode).
+- [ ] **Proxy Key Validation (Universal)**: Update the `require_proxy_key` authentication dependency in `src/rachel/auth.py` and `completions.py` to validate keys against the `tenant_api_keys` table and bind the resolved `tenant_id` (`local` or cloud tenant UUID) to the request context.
+- [ ] **Envelope Encryption (Universal)**: Implement HKDF-SHA256 key derivation. For cloud mode, derive KEK using `(MasterSecret + tenant_id + SSO_sub)`. For local mode, derive KEK using `(RACHEL_PROXY_KEY + "local" + "local_admin")`. Use the derived KEK to wrap/unwrap the Data Encryption Key (DEK) in memory.
 
 ### Phase 4: OpenRouter Resold Token Provisioning & GCP Cloud Run Deployment
 - [ ] **OpenRouter Provisioned Key Client**: Implement OpenRouter Management API integration to request provisioned keys for tenants selecting "OpenRouter (Resold Token)" mode.

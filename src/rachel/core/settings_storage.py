@@ -119,100 +119,64 @@ class FileSettingsStorage(BaseSettingsStorage):
         self._save()
 
 
-class PostgresSettingsStorage(BaseSettingsStorage):
-    """PostgreSQL storage implementation for tenant settings & credentials."""
+class RelationalSettingsStorage(BaseSettingsStorage):
+    """Relational SQL storage implementation for tenant settings & credentials (SQLite + PostgreSQL)."""
 
-    def __init__(self, tenant_id: str = "local") -> None:
+    def __init__(self, tenant_id: str = "local", engine: Any = None, db_url: str | None = None) -> None:
         super().__init__(tenant_id)
-        from rachel.core.state import _get_pg_pool
-        pool = _get_pg_pool()
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS tenant_settings (
-                        tenant_id VARCHAR(255) PRIMARY KEY,
-                        active_provider VARCHAR(64) NOT NULL DEFAULT 'openrouter_byok',
-                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS tenant_credentials (
-                        tenant_id VARCHAR(255) NOT NULL,
-                        provider VARCHAR(64) NOT NULL,
-                        api_key TEXT NOT NULL,
-                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        PRIMARY KEY (tenant_id, provider)
-                    );
-                """)
-                conn.commit()
-        finally:
-            pool.putconn(conn)
+        from rachel.core.db import get_engine, get_sessionmaker, init_db
+        self.engine = engine or get_engine(db_url)
+        init_db(engine=self.engine)
+        self.SessionMaker = get_sessionmaker(self.engine)
 
     def get_active_provider(self) -> str:
-        from rachel.core.state import _get_pg_pool
-        pool = _get_pg_pool()
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT active_provider FROM tenant_settings WHERE tenant_id = %s;", (self.tenant_id,))
-                row = cur.fetchone()
-                return row[0] if row else "openrouter_byok"
-        finally:
-            pool.putconn(conn)
+        from rachel.core.db import TenantSetting
+        with self.SessionMaker() as session:
+            setting = session.query(TenantSetting).filter_by(tenant_id=self.tenant_id).first()
+            return setting.active_provider if setting else "openrouter_byok"
 
     def set_active_provider(self, provider: str) -> None:
         if provider not in DEFAULT_PROVIDER_BASE_URLS:
             raise ValueError(f"Invalid provider: '{provider}'")
-        from rachel.core.state import _get_pg_pool
-        pool = _get_pg_pool()
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO tenant_settings (tenant_id, active_provider, updated_at)
-                    VALUES (%s, %s, CURRENT_TIMESTAMP)
-                    ON CONFLICT (tenant_id)
-                    DO UPDATE SET active_provider = EXCLUDED.active_provider, updated_at = CURRENT_TIMESTAMP;
-                """, (self.tenant_id, provider))
-                conn.commit()
-        finally:
-            pool.putconn(conn)
+        from rachel.core.db import TenantSetting
+        with self.SessionMaker() as session:
+            setting = session.query(TenantSetting).filter_by(tenant_id=self.tenant_id).first()
+            if not setting:
+                setting = TenantSetting(tenant_id=self.tenant_id, active_provider=provider)
+                session.add(setting)
+            else:
+                setting.active_provider = provider
+            session.commit()
 
     def get_credentials(self) -> dict[str, str]:
-        from rachel.core.state import _get_pg_pool
-        pool = _get_pg_pool()
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT provider, api_key FROM tenant_credentials WHERE tenant_id = %s;", (self.tenant_id,))
-                rows = cur.fetchall()
-                return {row[0]: row[1] for row in rows}
-        finally:
-            pool.putconn(conn)
+        from rachel.core.db import TenantCredential
+        with self.SessionMaker() as session:
+            rows = session.query(TenantCredential).filter_by(tenant_id=self.tenant_id).all()
+            return {r.provider: r.api_key for r in rows}
 
     def set_credential(self, provider: str, api_key: str) -> None:
         if provider not in DEFAULT_PROVIDER_BASE_URLS:
             raise ValueError(f"Invalid provider: '{provider}'")
-        from rachel.core.state import _get_pg_pool
-        pool = _get_pg_pool()
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO tenant_credentials (tenant_id, provider, api_key, updated_at)
-                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
-                    ON CONFLICT (tenant_id, provider)
-                    DO UPDATE SET api_key = EXCLUDED.api_key, updated_at = CURRENT_TIMESTAMP;
-                """, (self.tenant_id, provider, api_key.strip()))
-                conn.commit()
-        finally:
-            pool.putconn(conn)
+        from rachel.core.db import TenantCredential
+        with self.SessionMaker() as session:
+            cred = session.query(TenantCredential).filter_by(tenant_id=self.tenant_id, provider=provider).first()
+            if not cred:
+                cred = TenantCredential(tenant_id=self.tenant_id, provider=provider, api_key=api_key.strip())
+                session.add(cred)
+            else:
+                cred.api_key = api_key.strip()
+            session.commit()
+
+
+class PostgresSettingsStorage(RelationalSettingsStorage):
+    """PostgreSQL storage implementation for tenant settings & credentials (alias to RelationalSettingsStorage)."""
+    pass
 
 
 def get_settings_storage(tenant_id: str = "local", storage_dir: Any = None) -> BaseSettingsStorage:
     """Factory function to get settings storage engine based on STORAGE_ENGINE config."""
     from rachel.config import STORAGE_ENGINE
-    if STORAGE_ENGINE == "postgres":
-        return PostgresSettingsStorage(tenant_id)
+    if STORAGE_ENGINE.lower() in ("sqlite", "postgres", "sql", "relational"):
+        return RelationalSettingsStorage(tenant_id)
     return FileSettingsStorage(tenant_id, storage_dir)
+

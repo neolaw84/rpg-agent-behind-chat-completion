@@ -126,6 +126,13 @@ else:
     REASONING_PAYLOAD = _match if _match is not None else REASONING_FORMATS["Open-Router"]
 
 
+# Multi-Tenant Mode Flag
+_env_mt = os.environ.get("MULTI_TENANT_MODE")
+if _env_mt is not None and _env_mt != "":
+    MULTI_TENANT_MODE: bool = _env_mt.lower() in ("true", "1", "yes")
+else:
+    MULTI_TENANT_MODE: bool = bool(_cfg.get("multi_tenant_mode", False))
+
 # PostgreSQL Connection Settings (sourced exclusively from environment)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 PGDATABASE = os.environ.get("PGDATABASE")
@@ -133,4 +140,22 @@ PGHOST = os.environ.get("PGHOST")
 PGPASSWORD = os.environ.get("PGPASSWORD")
 PGPORT = os.environ.get("PGPORT")
 PGUSER = os.environ.get("PGUSER")
+
+# SQLite Default Path & Database URL Resolver
+DEFAULT_SQLITE_PATH: Path = (_BASE_DIR / "data" / "rpg_agent.sqlite3").resolve()
+
+def get_default_db_url() -> str:
+    """Return configured or derived SQL database URL (PostgreSQL or SQLite fallback)."""
+    if DATABASE_URL:
+        return DATABASE_URL
+    if any((PGHOST, PGUSER, PGDATABASE)):
+        user = PGUSER or ""
+        pwd = f":{PGPASSWORD}" if PGPASSWORD else ""
+        host = PGHOST or "localhost"
+        port = f":{PGPORT}" if PGPORT else ""
+        dbname = f"/{PGDATABASE}" if PGDATABASE else ""
+        auth = f"{user}{pwd}@" if user or pwd else ""
+        return f"postgresql://{auth}{host}{port}{dbname}"
+    return f"sqlite:///{DEFAULT_SQLITE_PATH}"
+
 

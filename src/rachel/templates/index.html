@@ -1,708 +1,162 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RPG Agent Proxy — Dashboard</title>
-  <meta name="description" content="Administration dashboard for the RPG Agent Proxy. Monitor status, manage sessions, and copy credentials." />
+  <title>Rachel-Proxy — Dashboard</title>
+  <meta name="description"
+    content="Administration dashboard for the RPG Agent Proxy. Monitor status, manage sessions, and copy credentials." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg-base:    #0b0e1a;
-      --bg-panel:   rgba(18, 22, 40, 0.85);
-      --bg-card:    rgba(25, 30, 55, 0.90);
-      --bg-hover:   rgba(40, 50, 90, 0.70);
-      --border:     rgba(80, 100, 180, 0.25);
-      --border-hi:  rgba(110, 140, 255, 0.5);
-      --accent:     #6c8aff;
-      --accent-dim: #3b4fa8;
-      --green:      #22d36e;
-      --amber:      #ffb83a;
-      --red:        #ff4f6a;
-      --muted:      #6b7bb4;
-      --text:       #d4deff;
-      --text-dim:   #7b8cbd;
-      --text-hi:    #ffffff;
-      --radius:     10px;
-      --radius-sm:  6px;
-      --shadow:     0 4px 30px rgba(0,0,0,0.4);
-      --glow:       0 0 14px rgba(108,138,255,0.35);
-      --transition: 0.18s ease;
-    }
-    html, body { min-height: 100vh; background: var(--bg-base); color: var(--text); font-family: 'Inter', system-ui, sans-serif; font-size: 14px; line-height: 1.6; }
-    body::before { content: ''; position: fixed; inset: 0; background: radial-gradient(ellipse 80% 50% at 20% 0%, rgba(60,80,200,0.18) 0%, transparent 60%), radial-gradient(ellipse 60% 40% at 80% 100%, rgba(100,40,160,0.12) 0%, transparent 60%); pointer-events: none; z-index: 0; }
-
-    /* Auth */
-    #auth-overlay { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: rgba(11,14,26,0.96); backdrop-filter: blur(12px); transition: opacity 0.3s; }
-    #auth-overlay.hidden { opacity: 0; pointer-events: none; }
-    .auth-box { background: var(--bg-card); border: 1px solid var(--border-hi); border-radius: 16px; padding: 40px 36px; width: 380px; box-shadow: var(--shadow), var(--glow); display: flex; flex-direction: column; gap: 20px; }
-    .auth-box h1 { font-size: 1.5rem; font-weight: 700; color: var(--text-hi); display: flex; align-items: center; gap: 10px; }
-    .auth-box p { color: var(--text-dim); font-size: 0.875rem; }
-    .auth-error { color: var(--red); font-size: 0.8rem; min-height: 1.2em; }
-
-    /* Form */
-    label { display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
-    input[type="password"], input[type="text"] { width: 100%; background: rgba(12,16,36,0.8); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; padding: 10px 14px; outline: none; transition: border-color var(--transition), box-shadow var(--transition); }
-    input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(108,138,255,0.15); }
-
-    /* Buttons */
-    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 18px; border-radius: var(--radius-sm); border: none; cursor: pointer; font-family: 'Inter', sans-serif; font-size: 0.85rem; font-weight: 600; transition: filter var(--transition), transform var(--transition), background var(--transition); text-decoration: none; }
-    .btn:active { transform: scale(0.97); }
-    .btn-primary { background: linear-gradient(135deg, #4f6edb, var(--accent)); color: #fff; }
-    .btn-primary:hover { filter: brightness(1.15); }
-    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text-dim); }
-    .btn-ghost:hover { border-color: var(--border-hi); color: var(--text); }
-    .btn-danger { background: rgba(255,79,106,0.15); border: 1px solid rgba(255,79,106,0.4); color: var(--red); }
-    .btn-danger:hover { background: rgba(255,79,106,0.25); }
-    .btn-warning { background: rgba(255,184,58,0.12); border: 1px solid rgba(255,184,58,0.35); color: var(--amber); }
-    .btn-warning:hover { background: rgba(255,184,58,0.22); }
-    .btn-copy { padding: 5px 10px; font-size: 0.78rem; background: rgba(108,138,255,0.12); border: 1px solid var(--border); color: var(--accent); }
-    .btn-copy:hover { background: rgba(108,138,255,0.22); }
-    .btn-copy.copied { color: var(--green); border-color: rgba(34,211,110,0.4); }
-    .btn-sm { padding: 6px 12px; font-size: 0.78rem; }
-
-    /* Layout */
-    #app { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 100vh; }
-    header { padding: 14px 24px; background: rgba(15,18,35,0.9); border-bottom: 1px solid var(--border); backdrop-filter: blur(10px); display: flex; align-items: center; gap: 14px; }
-    .logo { font-size: 1.2rem; font-weight: 700; color: var(--text-hi); display: flex; align-items: center; gap: 8px; }
-    .header-meta { flex: 1; display: flex; align-items: center; gap: 10px; }
-    .version-tag { background: rgba(108,138,255,0.12); border: 1px solid var(--border); color: var(--muted); border-radius: 20px; padding: 2px 10px; font-size: 0.72rem; }
-    .header-actions { display: flex; align-items: center; gap: 10px; }
-
-    /* Status dot */
-    .status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-    .status-dot.ok   { background: var(--green); box-shadow: 0 0 6px var(--green); }
-    .status-dot.warn { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
-    .status-dot.err  { background: var(--red);   box-shadow: 0 0 6px var(--red); }
-    .status-dot.idle { background: var(--muted); }
-
-    /* Main grid */
-    main { display: grid; grid-template-columns: 260px 1fr; flex: 1; overflow: hidden; }
-    #sidebar { background: rgba(14,18,34,0.7); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
-    .sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
-    #session-list { flex: 1; overflow-y: auto; padding: 8px; }
-    .session-item { padding: 10px 12px; border-radius: var(--radius-sm); cursor: pointer; transition: background var(--transition); display: flex; align-items: center; gap: 8px; user-select: none; }
-    .session-item:hover { background: var(--bg-hover); }
-    .session-item.active { background: rgba(108,138,255,0.18); border: 1px solid var(--border-hi); }
-    .session-name { font-size: 0.85rem; color: var(--text); word-break: break-all; font-family: 'JetBrains Mono', monospace; }
-    .session-empty { padding: 20px 16px; color: var(--text-dim); font-size: 0.82rem; text-align: center; }
-
-    /* Content */
-    #content { overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
-
-    /* Panels */
-    .panel { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); backdrop-filter: blur(8px); overflow: hidden; }
-    .panel-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-    .panel-title { font-size: 0.82rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; display: flex; align-items: center; gap: 8px; }
-    .panel-body { padding: 16px 18px; }
-
-    /* Credentials */
-    .cred-row { display: flex; align-items: center; gap: 10px; background: rgba(12,16,36,0.6); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 10px; }
-    .cred-label { font-size: 0.72rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; white-space: nowrap; min-width: 90px; }
-    .cred-value { flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: var(--text); word-break: break-all; overflow-wrap: anywhere; }
-    .cred-value.masked { letter-spacing: 0.15em; color: var(--text-dim); }
-
-    /* Status grid */
-    .status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
-    .stat-card { background: rgba(12,16,36,0.7); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
-    .stat-label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 4px; }
-    .stat-value { font-size: 1.1rem; font-weight: 600; color: var(--text-hi); font-family: 'JetBrains Mono', monospace; }
-    .stat-value.ok  { color: var(--green); }
-    .stat-value.warn { color: var(--amber); }
-    .stat-value.err  { color: var(--red); }
-
-    /* Turns */
-    .turn-list { display: flex; flex-direction: column; gap: 8px; }
-    .turn-card { background: rgba(12,16,36,0.7); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
-    .turn-header { padding: 8px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--text-dim); transition: background var(--transition); }
-    .turn-header:hover { background: var(--bg-hover); }
-    .turn-key { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--muted); }
-    .turn-idx { font-weight: 600; color: var(--accent); min-width: 32px; }
-    .turn-body { display: none; }
-    .turn-body.open { display: block; }
-    .turn-diff { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--border); }
-    .turn-diff-col { padding: 12px; }
-    .turn-diff-col:first-child { border-right: 1px solid var(--border); }
-    .turn-diff-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px; }
-
-    /* JSON */
-    pre.json-block { background: rgba(8,10,22,0.8); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--text); white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; line-height: 1.55; }
-    .json-key    { color: #82aaff; }
-    .json-string { color: #c3e88d; }
-    .json-num    { color: #f78c6c; }
-    .json-bool   { color: #ff5370; }
-    .json-null   { color: var(--muted); }
-
-    /* Toast */
-    #toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 8px; z-index: 200; }
-    .toast { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 18px; font-size: 0.83rem; color: var(--text); box-shadow: var(--shadow); animation: slideIn 0.2s ease; max-width: 320px; }
-    .toast.ok   { border-left: 3px solid var(--green); }
-    .toast.err  { border-left: 3px solid var(--red); }
-    .toast.warn { border-left: 3px solid var(--amber); }
-    @keyframes slideIn { from { opacity:0; transform: translateX(16px); } to { opacity:1; transform: none; } }
-
-    /* Utilities */
-    .flex-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .spacer   { flex: 1; }
-    .text-muted { color: var(--text-dim); }
-    .text-sm    { font-size: 0.8rem; }
-    .hidden     { display: none !important; }
-    .spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    /* Confirm */
-    #confirm-overlay { position: fixed; inset: 0; z-index: 150; display: flex; align-items: center; justify-content: center; background: rgba(11,14,26,0.8); backdrop-filter: blur(8px); }
-    #confirm-overlay.hidden { display: none; }
-    .confirm-box { background: var(--bg-card); border: 1px solid var(--border-hi); border-radius: var(--radius); padding: 28px 30px; width: 360px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 16px; }
-    .confirm-box h3 { font-size: 1rem; color: var(--text-hi); }
-    .confirm-box p  { color: var(--text-dim); font-size: 0.87rem; }
-    .confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
-
-    @media (max-width: 640px) {
-      main { grid-template-columns: 1fr; }
-      #sidebar { max-height: 200px; border-right: none; border-bottom: 1px solid var(--border); }
-      .turn-diff { grid-template-columns: 1fr; }
-      .turn-diff-col:first-child { border-right: none; border-bottom: 1px solid var(--border); }
-    }
-  </style>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
 </head>
+
 <body>
 
-<div id="auth-overlay">
-  <div class="auth-box">
-    <h1>&#127922; RACHEL Proxy</h1>
-    <p>Enter your <strong>Proxy API Key</strong> to unlock the administration dashboard.</p>
-    <div>
-      <label for="auth-key-input">Proxy API Key</label>
-      <input id="auth-key-input" type="password" placeholder="Paste key here&#8230;" autocomplete="off" />
-    </div>
-    <div id="auth-error" class="auth-error"></div>
-    <button id="auth-submit" class="btn btn-primary" style="align-self:flex-end;">Connect &rarr;</button>
-  </div>
-</div>
-
-<div id="confirm-overlay" class="hidden">
-  <div class="confirm-box">
-    <h3 id="confirm-title">Are you sure?</h3>
-    <p id="confirm-msg"></p>
-    <div class="confirm-actions">
-      <button id="confirm-cancel" class="btn btn-ghost">Cancel</button>
-      <button id="confirm-ok" class="btn btn-danger">Confirm</button>
+  <div id="auth-overlay">
+    <div class="auth-box">
+      <h1>&#127922; RACHEL Proxy</h1>
+      <p>Enter your <strong>Proxy API Key</strong> to unlock the administration dashboard.</p>
+      <div>
+        <label for="auth-key-input">Proxy API Key</label>
+        <input id="auth-key-input" type="password" placeholder="Paste key here&#8230;" autocomplete="off" />
+      </div>
+      <div id="auth-error" class="auth-error"></div>
+      <button id="auth-submit" class="btn btn-primary" style="align-self:flex-end;">Connect &rarr;</button>
     </div>
   </div>
-</div>
 
-<div id="toast-container"></div>
-
-<div id="app">
-  <header>
-    <div class="logo">&#127922; RACHEL Proxy</div>
-    <div class="header-meta">
-      <span class="version-tag">Dashboard</span>
-      <span id="header-status-dot" class="status-dot idle"></span>
-      <span id="header-status-text" class="text-muted text-sm">Connecting&#8230;</span>
-    </div>
-    <div class="header-actions">
-      <button id="btn-refresh-status" class="btn btn-ghost btn-sm">&#8635; Refresh</button>
-      <button id="btn-logout" class="btn btn-ghost btn-sm">&#10005; Disconnect</button>
-    </div>
-  </header>
-
-  <main>
-    <aside id="sidebar">
-      <div class="sidebar-header">
-        Sessions
-        <div class="flex-row" style="gap: 4px;">
-          <button id="btn-import-session" class="btn btn-ghost btn-sm" title="Import Session">📥</button>
-          <button id="btn-refresh-sessions" class="btn btn-ghost btn-sm">&#8635;</button>
-        </div>
+  <div id="confirm-overlay" class="hidden">
+    <div class="confirm-box">
+      <h3 id="confirm-title">Are you sure?</h3>
+      <p id="confirm-msg"></p>
+      <div class="confirm-actions">
+        <button id="confirm-cancel" class="btn btn-ghost">Cancel</button>
+        <button id="confirm-ok" class="btn btn-danger">Confirm</button>
       </div>
-      <input type="file" id="import-file-input" accept=".json" class="hidden" />
-      <div id="session-list">
-        <div class="session-empty">Loading sessions&#8230;</div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <div id="app">
+    <header>
+      <div class="logo">&#127922; RACHEL Proxy</div>
+      <div class="header-meta">
+        <span class="version-tag">Dashboard</span>
+        <span id="header-status-dot" class="status-dot idle"></span>
+        <span id="header-status-text" class="text-muted text-sm">Connecting&#8230;</span>
       </div>
-    </aside>
+      <div class="header-actions">
+        <button id="btn-refresh-status" class="btn btn-ghost btn-sm">&#8635; Refresh</button>
+        <button id="btn-logout" class="btn btn-ghost btn-sm">&#10005; Disconnect</button>
+      </div>
+    </header>
 
-    <div id="content">
-
-      <div class="panel" id="panel-providers">
-        <div class="panel-header">
-          <div class="panel-title">&#9889; Active LLM Provider & Credentials</div>
-          <span id="provider-loading" class="spinner hidden"></span>
+    <main>
+      <aside id="sidebar">
+        <div class="sidebar-header">
+          Sessions
+          <div class="flex-row" style="gap: 4px;">
+            <button id="btn-import-session" class="btn btn-ghost btn-sm" title="Import Session">📥</button>
+            <button id="btn-refresh-sessions" class="btn btn-ghost btn-sm">&#8635;</button>
+          </div>
         </div>
-        <div class="panel-body" style="display:flex;flex-direction:column;gap:14px;">
-          <div>
-            <label>Select Active Provider</label>
-            <div id="provider-options" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:6px;">
-              <!-- Radios dynamically populated -->
+        <input type="file" id="import-file-input" accept=".json" class="hidden" />
+        <div id="session-list">
+          <div class="session-empty">Loading sessions&#8230;</div>
+        </div>
+      </aside>
+
+      <div id="content">
+
+        <div class="panel" id="panel-providers">
+          <div class="panel-header">
+            <div class="panel-title">&#9889; Active LLM Provider & Credentials</div>
+            <span id="provider-loading" class="spinner hidden"></span>
+          </div>
+          <div class="panel-body" style="display:flex;flex-direction:column;gap:14px;">
+            <div>
+              <label>Select Active Provider</label>
+              <div id="provider-options" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:6px;">
+                <!-- Radios dynamically populated -->
+              </div>
+            </div>
+
+            <div id="provider-key-container" style="display:flex;flex-direction:column;gap:8px;">
+              <label for="provider-key-input">API Key for Selected Provider</label>
+              <div class="flex-row">
+                <input id="provider-key-input" type="password" placeholder="Paste provider API key..."
+                  autocomplete="off" style="flex:1;" />
+                <button id="btn-save-provider-key" class="btn btn-primary btn-sm">Save Key</button>
+              </div>
+            </div>
+
+            <div id="pkce-container" class="hidden" style="margin-top:4px;">
+              <p class="text-muted text-sm" style="margin-bottom:8px;">Authorizes RACHEL via OpenRouter OAuth PKCE
+                without copying raw keys.</p>
+              <a href="/v1/auth/openrouter/authorize" class="btn btn-primary btn-sm" id="btn-connect-pkce">&#128279;
+                Connect OpenRouter (PKCE)</a>
             </div>
           </div>
+        </div>
 
-          <div id="provider-key-container" style="display:flex;flex-direction:column;gap:8px;">
-            <label for="provider-key-input">API Key for Selected Provider</label>
-            <div class="flex-row">
-              <input id="provider-key-input" type="password" placeholder="Paste provider API key..." autocomplete="off" style="flex:1;" />
-              <button id="btn-save-provider-key" class="btn btn-primary btn-sm">Save Key</button>
+        <div class="panel" id="panel-credentials">
+          <div class="panel-header">
+            <div class="panel-title">&#128273; Credentials Helper</div>
+          </div>
+          <div class="panel-body" style="display:flex;flex-direction:column;gap:10px;">
+            <div class="cred-row">
+              <span class="cred-label">API Endpoint</span>
+              <span id="cred-endpoint" class="cred-value">&#8212;</span>
+              <button class="btn btn-copy" id="btn-copy-endpoint">Copy</button>
+            </div>
+            <div class="cred-row">
+              <span class="cred-label">API Key</span>
+              <span id="cred-key"
+                class="cred-value masked">&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;</span>
+              <button class="btn btn-copy btn-sm" id="btn-reveal-key">Show</button>
+              <button class="btn btn-copy" id="btn-copy-key">Copy</button>
+            </div>
+            <p class="text-muted text-sm">
+              Paste the <strong>API Endpoint</strong> as the <em>API URL</em> and the <strong>API Key</strong> as the
+              <em>Bearer token</em> in your roleplay client (e.g. JanitorAI).
+            </p>
+          </div>
+        </div>
+
+        <div class="panel" id="panel-status">
+          <div class="panel-header">
+            <div class="panel-title">&#128225; Proxy Status</div>
+            <span id="status-loading" class="spinner"></span>
+          </div>
+          <div class="panel-body">
+            <div class="status-grid" id="status-grid"></div>
+          </div>
+        </div>
+
+        <div class="panel" id="panel-session">
+          <div class="panel-header">
+            <div class="panel-title" id="session-panel-title">&#128194; Session Inspector</div>
+            <div class="flex-row hidden" id="session-actions">
+              <button id="btn-export-session" class="btn btn-ghost btn-sm">📥 Export</button>
+              <button id="btn-reset-session" class="btn btn-warning btn-sm">&#8635; Reset</button>
+              <button id="btn-delete-session" class="btn btn-danger  btn-sm">&#10005; Delete</button>
             </div>
           </div>
-
-          <div id="pkce-container" class="hidden" style="margin-top:4px;">
-            <p class="text-muted text-sm" style="margin-bottom:8px;">Authorizes RACHEL via OpenRouter OAuth PKCE without copying raw keys.</p>
-            <a href="/v1/auth/openrouter/authorize" class="btn btn-primary btn-sm" id="btn-connect-pkce">&#128279; Connect OpenRouter (PKCE)</a>
+          <div class="panel-body" id="session-body">
+            <p class="text-muted text-sm">Select a session from the sidebar to inspect it.</p>
           </div>
         </div>
+
       </div>
+    </main>
+  </div>
 
-      <div class="panel" id="panel-credentials">
-        <div class="panel-header">
-          <div class="panel-title">&#128273; Credentials Helper</div>
-        </div>
-        <div class="panel-body" style="display:flex;flex-direction:column;gap:10px;">
-          <div class="cred-row">
-            <span class="cred-label">API Endpoint</span>
-            <span id="cred-endpoint" class="cred-value">&#8212;</span>
-            <button class="btn btn-copy" id="btn-copy-endpoint">Copy</button>
-          </div>
-          <div class="cred-row">
-            <span class="cred-label">API Key</span>
-            <span id="cred-key" class="cred-value masked">&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;</span>
-            <button class="btn btn-copy btn-sm" id="btn-reveal-key">Show</button>
-            <button class="btn btn-copy" id="btn-copy-key">Copy</button>
-          </div>
-          <p class="text-muted text-sm">
-            Paste the <strong>API Endpoint</strong> as the <em>API URL</em> and the <strong>API Key</strong> as the <em>Bearer token</em> in your roleplay client (e.g. JanitorAI).
-          </p>
-        </div>
-      </div>
-
-      <div class="panel" id="panel-status">
-        <div class="panel-header">
-          <div class="panel-title">&#128225; Proxy Status</div>
-          <span id="status-loading" class="spinner"></span>
-        </div>
-        <div class="panel-body">
-          <div class="status-grid" id="status-grid"></div>
-        </div>
-      </div>
-
-      <div class="panel" id="panel-session">
-        <div class="panel-header">
-          <div class="panel-title" id="session-panel-title">&#128194; Session Inspector</div>
-          <div class="flex-row hidden" id="session-actions">
-            <button id="btn-export-session" class="btn btn-ghost btn-sm">📥 Export</button>
-            <button id="btn-reset-session"  class="btn btn-warning btn-sm">&#8635; Reset</button>
-            <button id="btn-delete-session" class="btn btn-danger  btn-sm">&#10005; Delete</button>
-          </div>
-        </div>
-        <div class="panel-body" id="session-body">
-          <p class="text-muted text-sm">Select a session from the sidebar to inspect it.</p>
-        </div>
-      </div>
-
-    </div>
-  </main>
-</div>
-
-<script>
-var LS_KEY = 'rpg_proxy_api_key';
-var _apiKey = localStorage.getItem(LS_KEY) || '';
-var _currentSession = null;
-var _keyVisible = false;
-
-// ── Utilities ────────────────────────────────────────────────────────
-function showToast(msg, type, duration) {
-  type = type || 'ok'; duration = duration || 3000;
-  var el = document.createElement('div');
-  el.className = 'toast ' + type;
-  el.textContent = msg;
-  document.getElementById('toast-container').appendChild(el);
-  setTimeout(function() { el.remove(); }, duration);
-}
-
-function showConfirm(title, msg, onOk) {
-  var ov = document.getElementById('confirm-overlay');
-  document.getElementById('confirm-title').textContent = title;
-  document.getElementById('confirm-msg').textContent = msg;
-  ov.classList.remove('hidden');
-  function cleanup() { ov.classList.add('hidden'); }
-  document.getElementById('confirm-ok').onclick    = function() { cleanup(); onOk(); };
-  document.getElementById('confirm-cancel').onclick = cleanup;
-}
-
-function apiFetch(path, opts) {
-  opts = opts || {};
-  var headers = Object.assign({'Authorization': 'Bearer ' + _apiKey, 'Content-Type': 'application/json'}, opts.headers || {});
-  return fetch(path, Object.assign({}, opts, {headers: headers})).then(function(res) {
-    if (res.status === 401) { showAuth('Invalid API key. Please reconnect.'); throw new Error('Unauthorized'); }
-    return res;
-  });
-}
-
-function syntaxHighlight(obj) {
-  var json = JSON.stringify(obj, null, 2);
-  return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(match) {
-    var cls = 'json-num';
-    if (/^"/.test(match)) cls = /:$/.test(match) ? 'json-key' : 'json-string';
-    else if (/true|false/.test(match)) cls = 'json-bool';
-    else if (/null/.test(match)) cls = 'json-null';
-    return '<span class="' + cls + '">' + match + '</span>';
-  });
-}
-
-function copyText(text, btn) {
-  navigator.clipboard.writeText(text).then(function() {
-    var orig = btn.textContent;
-    btn.textContent = '✓ Copied'; btn.classList.add('copied');
-    setTimeout(function() { btn.textContent = orig; btn.classList.remove('copied'); }, 2000);
-  });
-}
-
-// ── Auth ─────────────────────────────────────────────────────────────
-function showAuth(errMsg) {
-  _apiKey = ''; localStorage.removeItem(LS_KEY);
-  document.getElementById('auth-overlay').classList.remove('hidden');
-  document.getElementById('auth-error').textContent = errMsg || '';
-  document.getElementById('auth-key-input').value = '';
-}
-function hideAuth() { document.getElementById('auth-overlay').classList.add('hidden'); }
-
-function tryConnect(key) {
-  var errEl = document.getElementById('auth-error');
-  errEl.textContent = 'Verifying…';
-  fetch('/v1/status', {headers: {'Authorization': 'Bearer ' + key}}).then(function(res) {
-    if (res.ok) {
-      _apiKey = key; localStorage.setItem(LS_KEY, key);
-      hideAuth(); onConnected();
-    } else {
-      errEl.textContent = 'Invalid API key. Please check and try again.';
-    }
-  }).catch(function() {
-    errEl.textContent = 'Connection failed. Is the proxy running?';
-  });
-}
-
-// ── Providers ─────────────────────────────────────────────────────────
-var _providersData = null;
-var _selectedProvider = null;
-
-var PROVIDER_NAMES = {
-  'openrouter_byok': 'OpenRouter (BYOK Key)',
-  'openrouter_pkce': 'OpenRouter (PKCE OAuth)',
-  'openai_byok': 'OpenAI (BYOK Key)',
-  'gemini_byok': 'Google Gemini (BYOK Key)',
-  'deepseek_byok': 'DeepSeek (BYOK Key)'
-};
-
-function loadProviders() {
-  var container = document.getElementById('provider-options');
-  apiFetch('/v1/providers').then(function(res) { return res.json(); }).then(function(d) {
-    _providersData = d;
-    _selectedProvider = d.active_provider;
-    var html = Object.keys(PROVIDER_NAMES).map(function(pk) {
-      var info = d.providers[pk] || {};
-      var checked = (pk === d.active_provider) ? 'checked' : '';
-      var statusTag = info.configured ? ' <span style="color:var(--green);font-size:0.75rem;">(Key Set)</span>' : ' <span style="color:var(--muted);font-size:0.75rem;">(Not Set)</span>';
-      return '<label style="text-transform:none;font-weight:normal;cursor:pointer;display:flex;align-items:center;gap:6px;background:rgba(12,16,36,0.6);padding:8px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);">' +
-        '<input type="radio" name="active_provider_radio" value="' + pk + '" ' + checked + ' onchange="onProviderRadioChange(\'' + pk + '\')"> ' +
-        '<span>' + PROVIDER_NAMES[pk] + statusTag + '</span></label>';
-    }).join('');
-    container.innerHTML = html;
-    updateProviderUI(_selectedProvider);
-  }).catch(function(e) {
-    if (e.message !== 'Unauthorized') showToast('Failed to load provider config', 'err');
-  });
-}
-
-function onProviderRadioChange(providerKey) {
-  _selectedProvider = providerKey;
-  updateProviderUI(providerKey);
-  apiFetch('/v1/providers/active', {
-    method: 'POST',
-    body: JSON.stringify({provider: providerKey})
-  }).then(function(res) { return res.json(); }).then(function() {
-    showToast('Active provider updated: ' + PROVIDER_NAMES[providerKey], 'ok');
-    loadStatus();
-  }).catch(function(e) {
-    if (e.message !== 'Unauthorized') showToast('Failed to set active provider', 'err');
-  });
-}
-
-function updateProviderUI(providerKey) {
-  var keyBox = document.getElementById('provider-key-container');
-  var pkceBox = document.getElementById('pkce-container');
-  if (providerKey === 'openrouter_pkce') {
-    keyBox.classList.add('hidden');
-    pkceBox.classList.remove('hidden');
-  } else {
-    keyBox.classList.remove('hidden');
-    pkceBox.classList.add('hidden');
-  }
-}
-
-function saveProviderKey() {
-  var keyInput = document.getElementById('provider-key-input');
-  var val = keyInput.value.trim();
-  if (!val) { showToast('Please enter an API key.', 'warn'); return; }
-  if (!_selectedProvider || _selectedProvider === 'openrouter_pkce') return;
-
-  apiFetch('/v1/providers/credentials', {
-    method: 'POST',
-    body: JSON.stringify({provider: _selectedProvider, api_key: val})
-  }).then(function(res) { return res.json(); }).then(function() {
-    showToast('API key saved for ' + PROVIDER_NAMES[_selectedProvider], 'ok');
-    keyInput.value = '';
-    loadProviders();
-    loadStatus();
-  }).catch(function(e) {
-    if (e.message !== 'Unauthorized') showToast('Failed to save API key.', 'err');
-  });
-}
-
-// ── Status ────────────────────────────────────────────────────────────
-function loadStatus() {
-  var spinner = document.getElementById('status-loading');
-  var grid = document.getElementById('status-grid');
-  var dot  = document.getElementById('header-status-dot');
-  var txt  = document.getElementById('header-status-text');
-  spinner.classList.remove('hidden');
-  apiFetch('/v1/status').then(function(res) { return res.json(); }).then(function(d) {
-    var cards = [
-      {label: 'Active Provider', value: (PROVIDER_NAMES[d.active_provider] || d.active_provider)},
-      {label: 'Provider Key',   value: d.provider_key_set ? '✓ Set' : '✗ Missing', cls: d.provider_key_set ? 'ok' : 'err'},
-      {label: 'Sandbox Engine', value: d.sandbox_engine || '—'},
-      {label: 'Sandbox Timeout',value: d.sandbox_timeout + 's'},
-      {label: 'Max Iterations', value: d.max_iterations},
-      {label: 'Active Sessions',value: d.active_sessions_count},
-    ];
-    grid.innerHTML = cards.map(function(c) {
-      return '<div class="stat-card"><div class="stat-label">' + c.label + '</div><div class="stat-value ' + (c.cls || '') + '">' + c.value + '</div></div>';
-    }).join('');
-    document.getElementById('cred-endpoint').textContent = d.api_endpoint || '—';
-    if (d.provider_key_set) { dot.className = 'status-dot ok'; txt.textContent = 'Proxy OK'; }
-    else { dot.className = 'status-dot warn'; txt.textContent = 'API key missing'; }
-  }).catch(function(e) {
-    if (e.message !== 'Unauthorized') { dot.className = 'status-dot err'; txt.textContent = 'Error'; }
-  }).finally(function() { spinner.classList.add('hidden'); });
-}
-
-// ── Sessions ──────────────────────────────────────────────────────────
-function loadSessions() {
-  var listEl = document.getElementById('session-list');
-  listEl.innerHTML = '<div class="session-empty"><span class="spinner"></span></div>';
-  apiFetch('/v1/sessions').then(function(res) { return res.json(); }).then(function(data) {
-    var sessions = data.sessions || [];
-    if (!sessions.length) { listEl.innerHTML = '<div class="session-empty">No active sessions.</div>'; return; }
-    listEl.innerHTML = sessions.map(function(id) {
-      var safeId = id.replace(/'/g, "\\'");
-      return '<div class="session-item" id="si-' + id + '" onclick="selectSession(\'' + safeId + '\')">' +
-             '<span class="status-dot idle"></span>' +
-             '<span class="session-name">' + id + '</span></div>';
-    }).join('');
-  }).catch(function(e) {
-    if (e.message !== 'Unauthorized') listEl.innerHTML = '<div class="session-empty">Failed to load sessions.</div>';
-  });
-}
-
-function selectSession(id) {
-  _currentSession = id;
-  document.querySelectorAll('.session-item').forEach(function(el) { el.classList.remove('active'); });
-  var item = document.getElementById('si-' + id);
-  if (item) item.classList.add('active');
-
-  var title   = document.getElementById('session-panel-title');
-  var body    = document.getElementById('session-body');
-  var actions = document.getElementById('session-actions');
-  title.textContent = '🗂 Session: ' + id;
-  body.innerHTML = '<span class="spinner"></span>';
-  actions.classList.add('hidden');
-
-  apiFetch('/v1/sessions/' + encodeURIComponent(id)).then(function(res) {
-    if (res.status === 404) {
-      body.innerHTML = '<p class="text-muted text-sm">No state found for session <code>' + id + '</code>.</p>';
-      return;
-    }
-    return res.json().then(function(d) {
-      actions.classList.remove('hidden');
-      var turnsHtml = d.turns.map(function(t, i) {
-        return '<div class="turn-card">' +
-          '<div class="turn-header" onclick="toggleTurn(this)">' +
-          '<span class="turn-idx">#' + (i+1) + '</span>' +
-          '<span class="turn-key">' + t.turn_key + '</span>' +
-          '<span class="spacer"></span>' +
-          '<span class="text-muted">&#9658;</span></div>' +
-          '<div class="turn-body">' +
-          '<div class="turn-diff">' +
-          '<div class="turn-diff-col"><div class="turn-diff-label">Before</div>' +
-          '<pre class="json-block" style="max-height:200px;">' + syntaxHighlight(t.before) + '</pre></div>' +
-          '<div class="turn-diff-col"><div class="turn-diff-label">After</div>' +
-          '<pre class="json-block" style="max-height:200px;">' + syntaxHighlight(t.after) + '</pre></div>' +
-          '</div></div></div>';
-      }).join('');
-
-      body.innerHTML =
-        '<div style="margin-bottom:14px;">' +
-        '<div class="panel-title text-sm" style="margin-bottom:8px;">Current State (latest turn)</div>' +
-        '<pre class="json-block">' + syntaxHighlight(d.current_state) + '</pre></div>' +
-        '<div class="panel-title text-sm" style="margin-bottom:8px;">Turn History (' + d.turn_count + ' turn' + (d.turn_count !== 1 ? 's' : '') + ')</div>' +
-        '<div class="turn-list">' + turnsHtml + '</div>';
-    });
-  }).catch(function(e) {
-    if (e.message !== 'Unauthorized') body.innerHTML = '<p class="text-muted text-sm">Failed to load session data.</p>';
-  });
-}
-
-function toggleTurn(header) {
-  var body  = header.nextElementSibling;
-  var arrow = header.querySelector('span:last-child');
-  body.classList.toggle('open');
-  arrow.innerHTML = body.classList.contains('open') ? '&#9660;' : '&#9658;';
-}
-
-function resetSession() {
-  if (!_currentSession) return;
-  showConfirm('Reset Session', 'Clear all state history for "' + _currentSession + '"? The session ID is preserved but all turn data will be wiped.', function() {
-    apiFetch('/v1/sessions/' + encodeURIComponent(_currentSession) + '/reset', {method: 'POST'}).then(function(res) {
-      if (res.ok) { showToast('Session "' + _currentSession + '" reset.', 'ok'); loadSessions(); selectSession(_currentSession); }
-      else { showToast('Reset failed.', 'err'); }
-    }).catch(function(e) { if (e.message !== 'Unauthorized') showToast('Reset failed.', 'err'); });
-  });
-}
-
-function deleteSession() {
-  if (!_currentSession) return;
-  showConfirm('Delete Session', 'Permanently delete all data for "' + _currentSession + '"? This cannot be undone.', function() {
-    apiFetch('/v1/sessions/' + encodeURIComponent(_currentSession), {method: 'DELETE'}).then(function(res) {
-      if (res.ok) {
-        showToast('Session "' + _currentSession + '" deleted.', 'ok');
-        _currentSession = null;
-        document.getElementById('session-panel-title').textContent = '🗂 Session Inspector';
-        document.getElementById('session-body').innerHTML = '<p class="text-muted text-sm">Select a session from the sidebar to inspect it.</p>';
-        document.getElementById('session-actions').classList.add('hidden');
-        loadSessions();
-      } else { showToast('Delete failed.', 'err'); }
-    }).catch(function(e) { if (e.message !== 'Unauthorized') showToast('Delete failed.', 'err'); });
-  });
-}
-
-function exportSession() {
-  if (!_currentSession) return;
-  apiFetch('/v1/sessions/' + encodeURIComponent(_currentSession) + '/export').then(function(res) {
-    if (!res.ok) { throw new Error('Failed to export session data.'); }
-    return res.json();
-  }).then(function(data) {
-    var blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = _currentSession + '.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast('Session "' + _currentSession + '" exported successfully.', 'ok');
-  }).catch(function(e) {
-    if (e.message !== 'Unauthorized') {
-      showToast('Export failed: ' + e.message, 'err');
-    }
-  });
-}
-
-function triggerImport() {
-  document.getElementById('import-file-input').click();
-}
-
-function handleImportFile(event) {
-  var file = event.target.files[0];
-  if (!file) return;
-
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    try {
-      var data = JSON.parse(e.target.result);
-      var defaultSessionId = file.name.replace(/\.json$/i, '');
-      var sessionId = prompt('Enter a Session ID to import as:', defaultSessionId);
-      if (!sessionId) return;
-      sessionId = sessionId.trim();
-      if (!sessionId) {
-        showToast('Invalid Session ID.', 'err');
-        return;
-      }
-      
-      var existingItem = document.getElementById('si-' + sessionId);
-      if (existingItem) {
-        showConfirm('Overwrite Session', 'A session named "' + sessionId + '" already exists. Do you want to overwrite it?', function() {
-          sendImportRequest(sessionId, data);
-        });
-      } else {
-        sendImportRequest(sessionId, data);
-      }
-    } catch (err) {
-      showToast('Invalid JSON file: ' + err.message, 'err');
-    }
-  };
-  reader.readAsText(file);
-  event.target.value = ''; // Reset
-}
-
-function sendImportRequest(sessionId, data) {
-  apiFetch('/v1/sessions/' + encodeURIComponent(sessionId) + '/import', {
-    method: 'POST',
-    body: JSON.stringify(data)
-  }).then(function(res) {
-    if (!res.ok) {
-      return res.json().then(function(err) {
-        throw new Error(err.detail || 'Import failed.');
-      });
-    }
-    return res.json();
-  }).then(function(resData) {
-    showToast('Session "' + sessionId + '" imported successfully.', 'ok');
-    loadSessions();
-    setTimeout(function() { selectSession(sessionId); }, 150);
-  }).catch(function(e) {
-    if (e.message !== 'Unauthorized') {
-      showToast('Import failed: ' + e.message, 'err');
-    }
-  });
-}
-
-// ── Init ──────────────────────────────────────────────────────────────
-function onConnected() { loadStatus(); loadProviders(); loadSessions(); }
-
-document.getElementById('auth-submit').onclick = function() {
-  var key = document.getElementById('auth-key-input').value.trim();
-  if (!key) { document.getElementById('auth-error').textContent = 'Please enter a key.'; return; }
-  tryConnect(key);
-};
-document.getElementById('auth-key-input').onkeydown = function(e) {
-  if (e.key === 'Enter') document.getElementById('auth-submit').click();
-};
-document.getElementById('btn-save-provider-key').onclick = saveProviderKey;
-document.getElementById('btn-refresh-status').onclick   = function() { loadStatus(); loadProviders(); };
-document.getElementById('btn-refresh-sessions').onclick = loadSessions;
-document.getElementById('btn-logout').onclick = function() { showAuth(); };
-document.getElementById('btn-export-session').onclick  = exportSession;
-document.getElementById('btn-import-session').onclick   = triggerImport;
-document.getElementById('import-file-input').onchange   = handleImportFile;
-document.getElementById('btn-reset-session').onclick    = resetSession;
-document.getElementById('btn-delete-session').onclick   = deleteSession;
-
-document.getElementById('btn-reveal-key').onclick = function() {
-  _keyVisible = !_keyVisible;
-  var el = document.getElementById('cred-key');
-  var btn = document.getElementById('btn-reveal-key');
-  if (_keyVisible) { el.textContent = _apiKey; el.classList.remove('masked'); btn.textContent = 'Hide'; }
-  else { el.innerHTML = '&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;'; el.classList.add('masked'); btn.textContent = 'Show'; }
-};
-document.getElementById('btn-copy-endpoint').onclick = function() {
-  copyText(document.getElementById('cred-endpoint').textContent.trim(), this);
-};
-document.getElementById('btn-copy-key').onclick = function() { copyText(_apiKey, this); };
-
-// Boot
-if (_apiKey) { tryConnect(_apiKey); } else { showAuth(); }
-</script>
+  <script src="/static/app.js"></script>
 </body>
+
 </html>

@@ -1,167 +1,130 @@
-import json
+"""Tests for PostgresSessionStorage (built on RelationalSessionStorage & SQLAlchemy)."""
+
 import pytest
-from unittest.mock import MagicMock, patch
-from rachel.core.state import PostgresSessionStorage, _get_pg_pool
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
+
+from rachel.core.db import init_db
+from rachel.core.state import PostgresSessionStorage
 
 
 @pytest.fixture
-def mock_pg():
-    """Fixture to mock psycopg2 connection and pool."""
-    with patch("psycopg2.pool.SimpleConnectionPool") as mock_pool_cls:
-        mock_pool = MagicMock()
-        mock_pool_cls.return_value = mock_pool
-        mock_conn = MagicMock()
-        mock_pool.getconn.return_value = mock_conn
-        mock_cur = MagicMock()
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
-        # Reset the global pool cache so it initializes again
-        with patch("rachel.core.state._pg_pool", None):
-            # Patch config credentials so pool creation doesn't fail
-            with patch("rachel.config.DATABASE_URL", "postgresql://mock_user:mock_pass@localhost/mock_db"):
-                yield {
-                    "pool": mock_pool,
-                    "conn": mock_conn,
-                    "cur": mock_cur
-                }
-
-
-def test_postgres_storage_init(mock_pg):
-    # Creating an instance triggers schema initialization
-    storage = PostgresSessionStorage(session_id="test-session", max_size=5)
-    
-    # Assert that pool.getconn() was called
-    mock_pg["pool"].getconn.assert_called()
-    
-    # Check that schema creation queries were executed
-    calls = [call[0][0] for call in mock_pg["cur"].execute.call_args_list]
-    assert any("CREATE TABLE IF NOT EXISTS session_turns" in q for q in calls)
-    assert any("CREATE INDEX IF NOT EXISTS idx_session_turns_accessed_at" in q for q in calls)
-
-
-def test_get_before_state_success(mock_pg):
-    # Setup mock cursor output
-    mock_pg["cur"].fetchone.return_value = ({"state": {"gold": 100}},)
-    
-    storage = PostgresSessionStorage(session_id="test-session", max_size=5)
-    mock_pg["cur"].reset_mock()
-    
-    state = storage.get_before_state("abcdefabcdefabcdefabcdef")
-    
-    # Assert query
-    mock_pg["cur"].execute.assert_any_call(
-        "SELECT after_state FROM session_turns WHERE session_id = %s AND turn_key = %s;",
-        ("test-session", "abcdefabcdefabcdefabcdef")
+def pg_engine():
+    """SQLite in-memory engine with StaticPool mimicking Postgres relational storage behavior."""
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
-    # Assert access time update
-    mock_pg["cur"].execute.assert_any_call(
-        "UPDATE session_turns SET accessed_at = CURRENT_TIMESTAMP WHERE session_id = %s AND turn_key = %s;",
-        ("test-session", "abcdefabcdefabcdefabcdef")
-    )
+    init_db(engine=engine)
+    return engine
+
+
+def test_postgres_storage_init(pg_engine):
+    """Creating PostgresSessionStorage initializes storage engine."""
+    storage = PostgresSessionStorage(session_id="test-session-init", max_size=5, engine=pg_engine)
+    assert storage.session_id == "test-session-init"
+    assert storage.max_size == 5
+
+
+def test_get_before_state_success(pg_engine):
+    """Retrieve before state after saving a turn."""
+    storage = PostgresSessionStorage(session_id="test-session-before", max_size=5, engine=pg_engine)
+    tk = "abcdefabcdefabcdefabcdef"
+    storage.save_turn(tk, {"state": {"gold": 50}}, {"state": {"gold": 100}})
+
+    state = storage.get_before_state(tk)
     assert state["state"] == {"gold": 100}
 
 
-def test_get_before_state_none(mock_pg):
-    storage = PostgresSessionStorage(session_id="test-session", max_size=5)
-    mock_pg["cur"].reset_mock()
-    
+def test_get_before_state_none(pg_engine):
+    """Return initial blank state when turn key is None."""
+    storage = PostgresSessionStorage(session_id="test-session-none", max_size=5, engine=pg_engine)
     state = storage.get_before_state(None)
-    mock_pg["cur"].execute.assert_not_called()
     assert state == {"state": {}, "plan": [], "summary": "", "hidden_state": {}}
 
 
-def test_get_before_state_not_found(mock_pg):
-    mock_pg["cur"].fetchone.return_value = None
-    
-    storage = PostgresSessionStorage(session_id="test-session", max_size=5)
-    
+def test_get_before_state_not_found(pg_engine):
+    """Raise KeyError when turn key is not present."""
+    storage = PostgresSessionStorage(session_id="test-session-notfound", max_size=5, engine=pg_engine)
     with pytest.raises(KeyError):
-        storage.get_before_state("abcdefabcdefabcdefabcdef")
+        storage.get_before_state("nonexistentturnkey1234567")
 
 
-def test_save_turn_and_lru_pruning(mock_pg):
-    storage = PostgresSessionStorage(session_id="test-session", max_size=5)
-    mock_pg["cur"].reset_mock()
-    
-    before = {"state": {"gold": 10}}
-    after = {"state": {"gold": 20}}
-    storage.save_turn("abcdefabcdefabcdefabcdef", before, after)
-    
-    # Check insert/upsert call
-    args_list = [call[0] for call in mock_pg["cur"].execute.call_args_list]
-    insert_query_called = any("INSERT INTO session_turns" in q[0] for q in args_list)
-    assert insert_query_called
-    
-    # Check delete call for LRU pruning
-    delete_query_called = any("DELETE FROM session_turns" in q[0] for q in args_list)
-    assert delete_query_called
+def test_save_turn_and_lru_pruning(pg_engine):
+    """Verify in-memory zero-sort LRU pruning on turn limit."""
+    storage = PostgresSessionStorage(session_id="test-session-lru", max_size=2, engine=pg_engine)
 
+    tk1 = "1" * 24
+    tk2 = "2" * 24
+    tk3 = "3" * 24
 
-def test_reset_and_delete(mock_pg):
-    storage = PostgresSessionStorage(session_id="test-session", max_size=5)
-    mock_pg["cur"].reset_mock()
-    
-    storage.reset()
-    mock_pg["cur"].execute.assert_called_with(
-        "DELETE FROM session_turns WHERE session_id = %s;",
-        ("test-session",)
-    )
-    
-    mock_pg["cur"].reset_mock()
-    storage.delete()
-    mock_pg["cur"].execute.assert_called_with(
-        "DELETE FROM session_turns WHERE session_id = %s;",
-        ("test-session",)
-    )
+    storage.save_turn(tk1, {"v": 1}, {"v": 2})
+    storage.save_turn(tk2, {"v": 2}, {"v": 3})
+    storage.save_turn(tk3, {"v": 3}, {"v": 4})
 
-
-def test_get_all_turns(mock_pg):
-    mock_pg["cur"].fetchall.return_value = [
-        ("turn1", {"state": {"hp": 10}}, {"state": {"hp": 9}}),
-        ("turn2", {"state": {"hp": 9}}, {"state": {"hp": 8}})
-    ]
-    
-    storage = PostgresSessionStorage(session_id="test-session", max_size=5)
     turns = storage.get_all_turns()
-    
     assert len(turns) == 2
-    assert turns["turn1"]["before"]["state"] == {"hp": 10}
-    assert turns["turn1"]["after"]["state"] == {"hp": 9}
-    assert turns["turn2"]["before"]["state"] == {"hp": 9}
-    assert turns["turn2"]["after"]["state"] == {"hp": 8}
+    assert tk1 not in turns
+    assert tk2 in turns
+    assert tk3 in turns
 
 
-def test_list_sessions(mock_pg):
-    mock_pg["cur"].fetchall.return_value = [("session1",), ("session2",)]
-    
-    storage = PostgresSessionStorage(session_id="test-session", max_size=5)
-    mock_pg["cur"].reset_mock()
-    
-    sessions = PostgresSessionStorage.list_sessions()
-    mock_pg["cur"].execute.assert_called_with(
-        "SELECT DISTINCT session_id FROM session_turns ORDER BY session_id;"
-    )
-    assert sessions == ["session1", "session2"]
+def test_reset_and_delete(pg_engine):
+    """Verify reset and delete purge session turns."""
+    storage = PostgresSessionStorage(session_id="test-session-reset", max_size=5, engine=pg_engine)
+    tk = "a" * 24
+    storage.save_turn(tk, {"hp": 10}, {"hp": 5})
+
+    storage.reset()
+    assert len(storage.get_all_turns()) == 0
+
+    storage.save_turn(tk, {"hp": 10}, {"hp": 5})
+    storage.delete()
+    assert len(storage.get_all_turns()) == 0
 
 
-def test_import_data(mock_pg):
-    storage = PostgresSessionStorage(session_id="test-session", max_size=5)
-    mock_pg["cur"].reset_mock()
-    
+def test_get_all_turns(pg_engine):
+    """Retrieve full history of turns."""
+    storage = PostgresSessionStorage(session_id="test-session-turns", max_size=5, engine=pg_engine)
+    tk1 = "1" * 24
+    tk2 = "2" * 24
+
+    storage.save_turn(tk1, {"hp": 10}, {"hp": 9})
+    storage.save_turn(tk2, {"hp": 9}, {"hp": 8})
+
+    turns = storage.get_all_turns()
+    assert len(turns) == 2
+    assert turns[tk1]["before"]["state"] == {"hp": 10}
+    assert turns[tk1]["after"]["state"] == {"hp": 9}
+    assert turns[tk2]["before"]["state"] == {"hp": 9}
+    assert turns[tk2]["after"]["state"] == {"hp": 8}
+
+
+def test_list_sessions(pg_engine):
+    """List session IDs in postgres storage."""
+    s1 = PostgresSessionStorage(session_id="session1", max_size=5, engine=pg_engine)
+    s2 = PostgresSessionStorage(session_id="session2", max_size=5, engine=pg_engine)
+
+    s1.save_turn("a" * 24, {}, {})
+    s2.save_turn("b" * 24, {}, {})
+
+    sessions = PostgresSessionStorage.list_sessions(engine=pg_engine)
+    assert "session1" in sessions
+    assert "session2" in sessions
+
+
+def test_import_data(pg_engine):
+    """Import JSON data into postgres storage."""
+    storage = PostgresSessionStorage(session_id="test-session-import", max_size=5, engine=pg_engine)
+    tk = "abcdefabcdefabcdefabcdef"
     data = {
-        "abcdefabcdefabcdefabcdef": {
+        tk: {
             "before": {"state": {"gold": 10}},
             "after": {"state": {"gold": 20}}
         }
     }
     storage.import_data(data)
-    
-    args_list = [call[0] for call in mock_pg["cur"].execute.call_args_list]
-    
-    # Should delete existing first
-    assert args_list[0][0] == "DELETE FROM session_turns WHERE session_id = %s;"
-    
-    # Should insert new turn
-    insert_call = args_list[1]
-    assert "INSERT INTO session_turns" in insert_call[0]
-    assert insert_call[1][0] == "test-session"
-    assert insert_call[1][1] == "abcdefabcdefabcdefabcdef"
+    turns = storage.get_all_turns()
+    assert tk in turns
+    assert turns[tk]["after"]["state"] == {"gold": 20}

@@ -15,6 +15,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
+from rachel.core.db import Session as SessionModel, get_engine, get_sessionmaker, init_db
 
 logger = logging.getLogger(__name__)
 
@@ -198,102 +199,54 @@ class FileSessionStorage(BaseSessionStorage):
 
 
 # ---------------------------------------------------------------------------
-# PostgreSQL Storage Engine
+# Unified Relational Storage Engine (SQLite + PostgreSQL)
 # ---------------------------------------------------------------------------
 
-_pg_pool: Any = None
+class RelationalSessionStorage(BaseSessionStorage):
+    """Unified relational database session storage engine (SQLite + PostgreSQL)."""
 
-
-def _get_pg_pool() -> Any:
-    global _pg_pool
-    if _pg_pool is None:
-        import psycopg2.pool
-        from rachel.config import (
-            DATABASE_URL,
-            PGDATABASE,
-            PGHOST,
-            PGPASSWORD,
-            PGPORT,
-            PGUSER,
-        )
-
-        if DATABASE_URL:
-            _pg_pool = psycopg2.pool.SimpleConnectionPool(1, 10, dsn=DATABASE_URL)
-        else:
-            conn_kwargs = {}
-            if PGHOST:
-                conn_kwargs["host"] = PGHOST
-            if PGPORT:
-                conn_kwargs["port"] = PGPORT
-            if PGUSER:
-                conn_kwargs["user"] = PGUSER
-            if PGPASSWORD:
-                conn_kwargs["password"] = PGPASSWORD
-            if PGDATABASE:
-                conn_kwargs["database"] = PGDATABASE
-            if not conn_kwargs:
-                raise ValueError(
-                    "No PostgreSQL credentials found. Please set DATABASE_URL or PG* environment variables."
-                )
-            _pg_pool = psycopg2.pool.SimpleConnectionPool(1, 10, **conn_kwargs)
-
-        # Initialize schema
-        conn = _pg_pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS session_turns (
-                        session_id VARCHAR(255) NOT NULL,
-                        turn_key VARCHAR(24) NOT NULL,
-                        before_state JSONB NOT NULL,
-                        after_state JSONB NOT NULL,
-                        accessed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        PRIMARY KEY (session_id, turn_key)
-                    );
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_session_turns_accessed_at 
-                    ON session_turns (session_id, accessed_at DESC);
-                """)
-                conn.commit()
-        finally:
-            _pg_pool.putconn(conn)
-
-    return _pg_pool
-
-
-class PostgresSessionStorage(BaseSessionStorage):
-    """PostgreSQL-backed session storage engine."""
-
-    def __init__(self, session_id: str, max_size: int = 8) -> None:
+    def __init__(
+        self,
+        session_id: str,
+        max_size: int = 8,
+        tenant_id: str = "local",
+        engine: Any = None,
+        db_url: str | None = None,
+    ) -> None:
         super().__init__(session_id, max_size)
-        _get_pg_pool()
+        self.tenant_id = tenant_id
+        self.engine = engine or get_engine(db_url)
+        init_db(engine=self.engine)
+        self.SessionMaker = get_sessionmaker(self.engine)
+
+    def _load_session_record(self, db_session: Any) -> SessionModel | None:
+        return (
+            db_session.query(SessionModel)
+            .filter_by(tenant_id=self.tenant_id, session_id=self.session_id)
+            .first()
+        )
 
     def get_before_state(self, prev_turn_key: str | None) -> dict[str, Any]:
         if prev_turn_key is None:
             return _migrate_state({})
 
-        pool = _get_pg_pool()
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT after_state FROM session_turns WHERE session_id = %s AND turn_key = %s;",
-                    (self.session_id, prev_turn_key),
+        with self.SessionMaker() as session:
+            record = self._load_session_record(session)
+            if not record or not record.turns_data:
+                raise KeyError(
+                    f"turn_key '{prev_turn_key}' not found in session '{self.session_id}' database."
                 )
-                row = cur.fetchone()
-                if not row:
-                    raise KeyError(
-                        f"turn_key '{prev_turn_key}' not found in session '{self.session_id}' database."
-                    )
-                cur.execute(
-                    "UPDATE session_turns SET accessed_at = CURRENT_TIMESTAMP WHERE session_id = %s AND turn_key = %s;",
-                    (self.session_id, prev_turn_key),
+            turns_data = json.loads(record.turns_data) if record.turns_data else {}
+            if prev_turn_key not in turns_data:
+                raise KeyError(
+                    f"turn_key '{prev_turn_key}' not found in session '{self.session_id}' database."
                 )
-                conn.commit()
-                return _migrate_state(row[0])
-        finally:
-            pool.putconn(conn)
+
+            val = turns_data.pop(prev_turn_key)
+            turns_data[prev_turn_key] = val
+            record.turns_data = json.dumps(turns_data, ensure_ascii=False)
+            session.commit()
+            return _migrate_state(val.get("after", {}))
 
     def save_turn(
         self,
@@ -301,133 +254,121 @@ class PostgresSessionStorage(BaseSessionStorage):
         before_state: dict[str, Any],
         after_state: dict[str, Any],
     ) -> None:
-        pool = _get_pg_pool()
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO session_turns (session_id, turn_key, before_state, after_state, accessed_at)
-                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
-                    ON CONFLICT (session_id, turn_key)
-                    DO UPDATE SET before_state = EXCLUDED.before_state, after_state = EXCLUDED.after_state, accessed_at = CURRENT_TIMESTAMP;
-                    """,
-                    (
-                        self.session_id,
-                        turn_key,
-                        json.dumps(_migrate_state(before_state)),
-                        json.dumps(_migrate_state(after_state)),
-                    ),
+        with self.SessionMaker() as session:
+            record = self._load_session_record(session)
+            if not record:
+                record = SessionModel(
+                    tenant_id=self.tenant_id,
+                    session_id=self.session_id,
+                    turns_data="{}",
                 )
-                cur.execute(
-                    """
-                    DELETE FROM session_turns
-                    WHERE session_id = %s
-                      AND turn_key NOT IN (
-                          SELECT turn_key
-                          FROM session_turns
-                          WHERE session_id = %s
-                          ORDER BY accessed_at DESC, turn_key DESC
-                          LIMIT %s
-                      );
-                    """,
-                    (self.session_id, self.session_id, self.max_size),
+                session.add(record)
+
+            turns_data = json.loads(record.turns_data) if record.turns_data else {}
+            if turn_key in turns_data:
+                del turns_data[turn_key]
+            turns_data[turn_key] = {
+                "before": _migrate_state(before_state),
+                "after": _migrate_state(after_state),
+            }
+
+            while len(turns_data) > self.max_size:
+                oldest_key = next(iter(turns_data))
+                del turns_data[oldest_key]
+                logger.debug(
+                    "LRU: evicted turn %s from session %s", oldest_key, self.session_id
                 )
-                conn.commit()
-        finally:
-            pool.putconn(conn)
+
+            record.turns_data = json.dumps(turns_data, ensure_ascii=False)
+            session.commit()
 
     def reset(self) -> None:
-        pool = _get_pg_pool()
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM session_turns WHERE session_id = %s;", (self.session_id,))
-                conn.commit()
+        with self.SessionMaker() as session:
+            record = self._load_session_record(session)
+            if record:
+                session.delete(record)
+                session.commit()
             logger.info("Session %s has been reset in DB.", self.session_id)
-        finally:
-            pool.putconn(conn)
 
     def delete(self) -> None:
         self.reset()
 
     def import_data(self, data: dict[str, Any]) -> None:
         validated_data = _validate_and_normalize_import(data)
-
-        pool = _get_pg_pool()
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM session_turns WHERE session_id = %s;", (self.session_id,))
-                for idx, (turn_key, turn_info) in enumerate(validated_data.items()):
-                    cur.execute(
-                        """
-                        INSERT INTO session_turns (session_id, turn_key, before_state, after_state, accessed_at)
-                        VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP + INTERVAL '%s second');
-                        """,
-                        (
-                            self.session_id,
-                            turn_key,
-                            json.dumps(turn_info["before"]),
-                            json.dumps(turn_info["after"]),
-                            idx,
-                        ),
-                    )
-                conn.commit()
+        with self.SessionMaker() as session:
+            record = self._load_session_record(session)
+            if not record:
+                record = SessionModel(
+                    tenant_id=self.tenant_id,
+                    session_id=self.session_id,
+                )
+                session.add(record)
+            record.turns_data = json.dumps(validated_data, ensure_ascii=False)
+            session.commit()
             logger.info("Session %s successfully imported to DB.", self.session_id)
-        finally:
-            pool.putconn(conn)
 
     def get_all_turns(self) -> dict[str, dict[str, Any]]:
-        pool = _get_pg_pool()
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT turn_key, before_state, after_state FROM session_turns WHERE session_id = %s ORDER BY accessed_at ASC;",
-                    (self.session_id,),
-                )
-                rows = cur.fetchall()
-                turns = {}
-                for row in rows:
-                    turns[row[0]] = {
-                        "before": _migrate_state(row[1]),
-                        "after": _migrate_state(row[2]),
-                    }
-                return turns
-        finally:
-            pool.putconn(conn)
+        with self.SessionMaker() as session:
+            record = self._load_session_record(session)
+            if not record or not record.turns_data:
+                return {}
+            turns = json.loads(record.turns_data)
+            return {
+                tk: {
+                    "before": _migrate_state(tv.get("before", {})),
+                    "after": _migrate_state(tv.get("after", {})),
+                }
+                for tk, tv in turns.items()
+            }
 
     @classmethod
-    def list_sessions(cls, storage_dir: Any = None) -> list[str]:
-        pool = _get_pg_pool()
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT DISTINCT session_id FROM session_turns ORDER BY session_id;")
-                rows = cur.fetchall()
-                return [row[0] for row in rows]
-        finally:
-            pool.putconn(conn)
+    def list_sessions(
+        cls,
+        storage_dir: Any = None,
+        tenant_id: str = "local",
+        engine: Any = None,
+        db_url: str | None = None,
+    ) -> list[str]:
+        eng = engine or get_engine(db_url)
+        init_db(engine=eng)
+        sm = get_sessionmaker(eng)
+        with sm() as session:
+            records = (
+                session.query(SessionModel.session_id)
+                .filter_by(tenant_id=tenant_id)
+                .order_by(SessionModel.session_id)
+                .all()
+            )
+            return [r[0] for r in records]
+
+
+class PostgresSessionStorage(RelationalSessionStorage):
+    """PostgreSQL-backed session storage engine (alias to RelationalSessionStorage)."""
+    pass
 
 
 # ---------------------------------------------------------------------------
 # Factory & Backward Compatibility Wrapper
 # ---------------------------------------------------------------------------
 
-def get_session_storage(session_id: str, max_size: int = 8, storage_dir: Any = None) -> BaseSessionStorage:
+def get_session_storage(
+    session_id: str,
+    max_size: int = 8,
+    storage_dir: Any = None,
+    tenant_id: str = "local",
+) -> BaseSessionStorage:
     """Factory to instantiate the configured storage engine."""
     from rachel.config import STORAGE_ENGINE
-    if STORAGE_ENGINE == "postgres":
-        return PostgresSessionStorage(session_id, max_size)
+    if STORAGE_ENGINE.lower() in ("sqlite", "postgres", "sql", "relational"):
+        return RelationalSessionStorage(session_id, max_size, tenant_id=tenant_id)
     return FileSessionStorage(session_id, max_size, storage_dir)
 
 
-def list_all_sessions(storage_dir: Any = None) -> list[str]:
+def list_all_sessions(storage_dir: Any = None, tenant_id: str = "local") -> list[str]:
     """Helper function to list all sessions using the active engine."""
     from rachel.config import STORAGE_ENGINE
-    if STORAGE_ENGINE == "postgres":
-        return PostgresSessionStorage.list_sessions(storage_dir)
+    if STORAGE_ENGINE.lower() in ("sqlite", "postgres", "sql", "relational"):
+        return RelationalSessionStorage.list_sessions(storage_dir=storage_dir, tenant_id=tenant_id)
     return FileSessionStorage.list_sessions(storage_dir)
 
 
@@ -468,3 +409,4 @@ class SessionStateStore(BaseSessionStorage):
     @classmethod
     def list_sessions(cls, storage_dir: Any = None) -> list[str]:
         return list_all_sessions(storage_dir)
+

@@ -37,26 +37,31 @@ Because RACHEL operates in two operational modes (**Standalone Single-Tenant** a
 
 **Purpose**: Authenticates third-party chat completion clients (e.g., JanitorAI, SillyTavern, or custom frontends) making HTTP requests to `/v1/chat/completions` or session management endpoints (`/v1/sessions/*`).
 
+Both operational modes utilize a parallel database-backed API key system, validating incoming requests against the `tenant_api_keys` table and resolving the tenant context.
+
 ### Standalone Single-Tenant Mode (Local PC)
-* **Mechanism**: Local Proxy Key (`RACHEL_PROXY_KEY`).
-* **Storage / Resolution**: Specified via `RACHEL_PROXY_KEY` environment variable or auto-generated at startup in `data/proxy.key`.
+* **Mechanism**: Local Proxy Keys (prefixed with `sk-local-...`) plus the **Bootstrap Proxy Key** (`RACHEL_PROXY_KEY`).
+* **Storage / Resolution**: 
+  - The Bootstrap Proxy Key is specified via the `RACHEL_PROXY_KEY` environment variable or auto-generated at startup in `data/proxy.key`.
+  - On startup, if the SQLite database is initialized and does not contain this Bootstrap Proxy Key, it is automatically seeded into the `tenant_api_keys` database table for the `local` tenant.
+  - The user can generate and revoke additional client-specific keys (prefixed with `sk-local-...`) via the local Admin Console GUI.
 * **Client Usage**: Passed in the standard `Authorization` header:
   ```http
-  Authorization: Bearer <RACHEL_PROXY_KEY>
+  Authorization: Bearer <RACHEL_PROXY_KEY_OR_SK_LOCAL>
   ```
-* **Enforcement**: Validated in `src/rachel/auth.py` via `require_proxy_key` dependency.
+* **Enforcement**: Validated in `src/rachel/auth.py` via the `require_proxy_key` dependency by hashing the incoming key and querying SQLite `tenant_api_keys`.
 
 ### Multi-Tenant Cloud Mode (GCP Cloud Run)
 * **Mechanism**: **Tenant Proxy Keys** prefixed with `sk-tenant-...`.
 * **Management**: Generated, named, and revoked by the human tenant in the Admin Console GUI.
-* **Storage**: Hashed (e.g. SHA-256) in the Neon PostgreSQL database table `tenant_api_keys`. Raw keys are shown to the user **once** upon creation.
+* **Storage**: Hashed (e.g., SHA-256) in the Neon PostgreSQL database table `tenant_api_keys`. Raw keys are shown to the user **once** upon creation.
 * **Client Usage**: Passed in the `Authorization` header:
   ```http
   Authorization: Bearer sk-tenant-xxxxxxxxxxxxxx
   ```
-* **Request Lifecycle**:
-  1. Incoming request extracts `sk-tenant-...`.
-  2. Database lookup matches key hash and resolves `tenant_id`.
+* **Request Lifecycle (Universal)**:
+  1. Incoming request extracts the bearer token.
+  2. Database lookup matches the hashed token in `tenant_api_keys` and resolves the associated `tenant_id` (`local` or cloud tenant UUID).
   3. The proxy key is used in-memory to unwrap the tenant's Data Encryption Key (DEK) to access upstream LLM credentials for that specific request execution.
 
 ---
@@ -80,6 +85,21 @@ Because RACHEL operates in two operational modes (**Standalone Single-Tenant** a
   1. **Authentication**: Verifies human user identity statelessly.
   2. **Envelope Key Derivation**: The OIDC `sub` claim is **globally unique and immutable** for the life of the user account. RACHEL uses `sub` in HKDF-SHA256 key derivation to reconstruct the Key Encryption Key (KEK) needed to decrypt tenant credentials stored in the database.
 
+### Frontend Build-Time Differentiation & Hardening
+
+To enforce separation of concerns, prevent cloud bypasses, and reduce client bundle sizes, the dashboard code is statically compiled into two separate build targets using environment/compiler flags (such as Vite/Webpack environment flags):
+
+1. **Local Build Target (`dist/local`)**:
+   - Compiles only the local key strategy.
+   - Strips out all external SSO scripts (e.g., Clerk, Auth0 scripts/widgets) and redirect callback handlers.
+   - Restores/renders the local password overlay.
+2. **Cloud Build Target (`dist/cloud`)**:
+   - Compiles only the SaaS/SSO redirection and widget loading logic.
+   - Completely removes the local password input overlays, raw key forms, and local authorization DOM elements.
+   - Enforces OIDC JWT validation paths, making it physically impossible for the browser code to display or accept a local key bypass.
+
+At startup, the FastAPI server mounts and serves the static assets corresponding to the `MULTI_TENANT_MODE` config setting.
+
 ---
 
 ## 3. LLM Provider Authentication (Outbound Upstream Access)
@@ -100,14 +120,19 @@ RACHEL supports multiple active providers and multiple authentication methods fo
 > [!NOTE]
 > **Multiple Accounts / Provider Instances**: A single tenant may configure multiple credentials (for example, two separate OpenRouter accounts or both direct keys and provisioned keys). The Admin Console allows selecting one **Active Provider** for completions dispatch.
 
-### Storage & Encryption Architecture
+### Storage & Encryption Architecture (Parallelized)
 
-* **Standalone Local Mode**: Credentials set via Admin Console or `.env` (`OPENROUTER_API_KEY`) are saved locally in `data/proxy.key` or local SQLite database (`tenant_credentials`).
-* **Multi-Tenant Cloud Mode (Tenant-Derived Envelope Encryption)**:
-  * Credentials are stored in `tenant_credentials` in Neon PostgreSQL encrypted using **AES-256-GCM Envelope Encryption (DEK/KEK)**.
-  * Key derivation uses **HKDF-SHA256**:
+Both operational modes utilize **AES-256-GCM Envelope Encryption (DEK/KEK)** via HKDF-SHA256 derivation to protect upstream LLM API keys:
+
+* **Standalone Local Mode**: 
+  - Credentials set via the Admin Console GUI are stored in the local SQLite database table `tenant_credentials`.
+  - The Key Encryption Key (KEK) is derived as:
+    $$\text{KEK} = \text{HKDF-SHA256}(\text{RACHEL\_PROXY\_KEY}, \text{salt}=\text{"local"}, \text{info}=\text{"local\_admin"})$$
+* **Multi-Tenant Cloud Mode**:
+  - Credentials are stored in `tenant_credentials` in Neon PostgreSQL.
+  - The KEK is derived using OIDC identity claims:
     $$\text{KEK} = \text{HKDF-SHA256}(\text{MasterSecret}, \text{salt}=\text{tenant\_id}, \text{info}=\text{SSO\_sub})$$
-  * **Zero Bulk Exposure**: A database leak combined with `ENCRYPTION_MASTER_KEY` cannot decrypt user API keys without an active user SSO session (`sub`) or valid incoming tenant proxy key (`sk-tenant-...`).
+  - **Zero Bulk Exposure**: A database leak combined with `ENCRYPTION_MASTER_KEY` cannot decrypt user API keys without an active user SSO session (`sub`) or a valid incoming tenant proxy key (`sk-tenant-...`).
 
 ---
 
@@ -115,9 +140,9 @@ RACHEL supports multiple active providers and multiple authentication methods fo
 
 | Auth Realm | Initiator & Target | Standalone Local Mechanism | Multi-Tenant Cloud Mechanism | Stored Credential Location |
 | :--- | :--- | :--- | :--- | :--- |
-| **Inbound Chat Client Auth** | Chat Client $\rightarrow$ RACHEL (`/v1/chat/completions`) | `RACHEL_PROXY_KEY` (env / `data/proxy.key`) | Tenant Proxy Keys (`sk-tenant-...`) | Plaintext/Env (Local) / SHA-256 Hashed in Postgres `tenant_api_keys` (Cloud) |
-| **Admin Panel Auth** | Human User $\rightarrow$ Admin Console (`/`) | `RACHEL_PROXY_KEY` | External SSO JWT (Clerk, Auth0, etc.) | Verified statelessly via JWKS (no DB session table) |
-| **Outbound LLM Auth** | RACHEL $\rightarrow$ LLM Providers (OpenRouter, OpenAI, etc.) | `OPENROUTER_API_KEY` env / Local SQLite | BYOK / PKCE / Resold Provisioned Keys | Local file/SQLite (Local) / AES-256-GCM Envelope Encrypted in Postgres `tenant_credentials` (Cloud) |
+| **Inbound Chat Client Auth** | Chat Client $\rightarrow$ RACHEL (`/v1/chat/completions`) | `RACHEL_PROXY_KEY` (auto-seeded) OR Local Proxy Keys (`sk-local-...`) | Tenant Proxy Keys (`sk-tenant-...`) | SHA-256 Hashed in SQLite `tenant_api_keys` (Local) / SHA-256 Hashed in Postgres `tenant_api_keys` (Cloud) |
+| **Admin Panel Auth** | Human User $\rightarrow$ Admin Console (`/`) | `RACHEL_PROXY_KEY` check | External SSO JWT (Clerk, Auth0, etc.) | Verified statelessly via JWKS (no DB session table) |
+| **Outbound LLM Auth** | RACHEL $\rightarrow$ LLM Providers (OpenRouter, OpenAI, etc.) | BYOK / PKCE / env overrides (`OPENROUTER_API_KEY`) | BYOK / PKCE / Resold Provisioned Keys | Envelope Encrypted in SQLite `tenant_credentials` (Local) / Envelope Encrypted in Postgres `tenant_credentials` (Cloud) |
 
 ---
 

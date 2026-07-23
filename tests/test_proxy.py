@@ -281,3 +281,20 @@ def test_compute_turn_key_mocked_time():
     assert key1 != key2
 
 
+def test_dashboard_and_static_assets(client):
+    """Verify index.html dashboard and external static assets serving."""
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert '<link rel="stylesheet" href="/static/style.css"' in resp.text
+    assert '<script src="/static/app.js"></script>' in resp.text
+
+    css_resp = client.get("/static/style.css")
+    assert css_resp.status_code == 200
+    assert "--bg-base:" in css_resp.text
+
+    js_resp = client.get("/static/app.js")
+    assert js_resp.status_code == 200
+    assert "rpg_proxy_api_key" in js_resp.text
+
+
+
