@@ -155,7 +155,18 @@ def get_default_db_url() -> str:
         port = f":{PGPORT}" if PGPORT else ""
         dbname = f"/{PGDATABASE}" if PGDATABASE else ""
         auth = f"{user}{pwd}@" if user or pwd else ""
-        return f"postgresql://{auth}{host}{port}{dbname}"
     return f"sqlite:///{DEFAULT_SQLITE_PATH}"
+
+
+# Envelope Encryption Master Secret (derived from environment or config)
+ENCRYPTION_MASTER_KEY: str = os.environ.get(
+    "ENCRYPTION_MASTER_KEY",
+    _cfg.get("encryption_master_key", "rachel-master-encryption-secret-default")
+)
+
+# OpenID Connect / SSO Settings for Cloud Mode
+OIDC_ISSUER_URL: str | None = os.environ.get("OIDC_ISSUER_URL", _cfg.get("oidc", {}).get("issuer_url"))
+OIDC_JWKS_URL: str | None = os.environ.get("OIDC_JWKS_URL", _cfg.get("oidc", {}).get("jwks_url"))
+
 
 

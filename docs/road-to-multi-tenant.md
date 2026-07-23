@@ -174,37 +174,42 @@ During architectural design, several alternatives were evaluated and intentional
 
 ## 4. Phased Implementation Plan
 
-### Phase 0: Standalone Portable Python & Lightweight Launchers (Desktop Single-Tenant Packaging)
-- [ ] **Portable Python Bundling (`python-build-standalone`)**: Set up build scripts to bundle self-contained, isolated Python runtimes for Windows (`x86_64`), macOS (`aarch64`/`x86_64`), and Linux (`x86_64`).
+### Phase 1: Multi-Provider LLM Dispatcher & Active Provider GUI (Universal Core)
+- [x] **Multi-Provider Client Layer**: Extend LLM invocation in `src/rachel/agent/` to support direct API calls for OpenAI (`api.openai.com`), Google Gemini (`generativelanguage.googleapis.com`), and DeepSeek (`api.deepseek.com`) alongside OpenRouter.
+- [x] **Active Provider Config**: Implement the **Active Provider Selection** configuration model in `src/rachel/config.py`.
+- [x] **OpenRouter PKCE OAuth Flow**: Implement `/v1/auth/openrouter/authorize` (PKCE challenge generation) and `/v1/auth/openrouter/callback` token exchange in `src/rachel/routes/system.py`.
+- [x] **Admin Console UI Update**: Update `src/rachel/templates/index.html` with a **Provider Credentials** configuration card and an **Active Provider Selector** toggle.
+
+### Phase 2: Unified SQL Storage Engine (SQLite Local + Neon PostgreSQL)
+- [x] **Unified Database Layer (`src/rachel/core/db.py`)**: Define SQLAlchemy/SQLModel models for `tenants`, `tenant_api_keys`, `tenant_credentials`, `tenant_settings`, and `sessions` (including `turns_data` JSON blob).
+- [x] **Unified Relational Storage Strategy (`RelationalSessionStorage`)**: Refactor `BaseSessionStorage` in `src/rachel/core/state.py` to use `RelationalSessionStorage`. Connects to `sqlite:///data/rpg_agent.sqlite3` in Local Standalone Mode (`tenant_id = 'local'`) and Neon PostgreSQL in Multi-Tenant Cloud Mode.
+- [x] **In-Memory Python LRU Eviction**: Implement Python `dict` key popping (`len > num_states_to_track`) before SQL `UPSERT` execution.
+- [x] **Bootstrap Key Auto-Seeding (Local Mode)**: Auto-seed the SQLite `tenant_api_keys` table on database initialization with `RACHEL_PROXY_KEY` as a default client key for the `local` tenant.
+
+### Phase 3: Multi-Tenant Identity, Universal Key Management & Envelope Encryption (Backend Security & Auth Core)
+- [x] **Client Proxy Key Management (Universal)**: Add API endpoints in `src/rachel/routes/system.py` to generate, list, and revoke database-backed client proxy keys (with prefix `sk-local-...` in Local Mode and `sk-tenant-...` in Cloud Mode).
+- [x] **Proxy Key Validation (Universal)**: Update the `require_proxy_key` authentication dependency in `src/rachel/auth.py` and `completions.py` to validate keys against the `tenant_api_keys` table and bind the resolved `tenant_id` (`local` or cloud tenant UUID) to the request context.
+- [x] **Envelope Encryption (Universal)**: Implement HKDF-SHA256 key derivation. For cloud mode, derive KEK using `(MasterSecret + tenant_id + SSO_sub)`. For local mode, derive KEK using `(RACHEL_PROXY_KEY + "local" + "local_admin")`. Use the derived KEK to wrap/unwrap the Data Encryption Key (DEK) in memory.
+- [x] **Stateless JWT SSO Auth Middleware**: Add JWKS-based JWT validation dependency in `src/rachel/auth.py` for Admin Console routes when `MULTI_TENANT_MODE=true`.
+
+### Phase 4: Frontend Modular Refactoring & Dual-Build Pipeline (`dist/local` vs `dist/cloud`)
+- [ ] **Frontend Modular Refactoring**: Refactor SPA dashboard in `src/rachel/templates/index.html` / frontend modules into structured component files.
+- [ ] **Frontend Dual-Build Pipeline**: Implement frontend build bundler pipeline (e.g. Vite / compiler flags) to compile two distinct output targets:
+  - `dist/local`: Single-tenant desktop dashboard (strips OIDC/SSO widgets and cloud auth redirects; renders local password/key prompts).
+  - `dist/cloud`: Multi-tenant cloud dashboard (enforces OIDC/SSO login widgets and cloud authentication flow).
+- [ ] **FastAPI Mount Alignment**: Update static file mounting in `src/rachel/proxy.py` to serve static files from `dist/cloud` when `MULTI_TENANT_MODE=true` and `dist/local` when `MULTI_TENANT_MODE=false`.
+
+### Phase 5: Desktop Packaging, CI Release & GCP Cloud Run Deployment
+- [ ] **Portable Python Bundling (`python-build-standalone`)**: Set up build scripts to bundle self-contained, isolated Python runtimes for Windows (`x86_64`), macOS (`aarch64`/`x86_64`), and Linux (`x86_64`), bundling `dist/local` static assets into release packages.
 - [ ] **OS-Specific One-Click Launchers**: Create background launcher scripts/wrappers:
   - **Windows**: Silent `.vbs` launcher (`launch.vbs`) to start Uvicorn without a CMD prompt box and open default browser.
   - **macOS**: Shell launcher (`launch.command`) with double-click execution support.
   - **Linux**: Desktop entry (`rpg-agent.desktop`) and `launch.sh`.
 - [ ] **Automated Multi-OS GitHub Release Workflow**: Create a GitHub Actions CI workflow to build and attach `rpg-agent-vX.X.X-{win,mac,linux}.zip` release artifacts on tag push.
-- [ ] **Single-Tenant Documentation**: Document local double-click installation and macOS Gatekeeper bypass instructions in `README.md`.
-
-### Phase 1: Multi-Provider LLM Dispatcher & Active Provider GUI (Universal Core)
-- [ ] **Multi-Provider Client Layer**: Extend LLM invocation in `src/rachel/agent/` to support direct API calls for OpenAI (`api.openai.com`), Google Gemini (`generativelanguage.googleapis.com`), and DeepSeek (`api.deepseek.com`) alongside OpenRouter.
-- [ ] **Active Provider Config**: Implement the **Active Provider Selection** configuration model in `src/rachel/config.py`.
-- [ ] **OpenRouter PKCE OAuth Flow**: Implement `/v1/auth/openrouter/authorize` (PKCE challenge generation) and `/v1/auth/openrouter/callback` token exchange in `src/rachel/routes/system.py`.
-- [ ] **Admin Console UI Update**: Update `src/rachel/templates/index.html` with a **Provider Credentials** configuration card and an **Active Provider Selector** toggle.
-
-### Phase 2: Unified SQL Storage Engine (SQLite Local + Neon PostgreSQL)
-- [ ] **Unified Database Layer (`src/rachel/core/db.py`)**: Define SQLAlchemy/SQLModel models for `tenants`, `tenant_api_keys`, `tenant_credentials`, `tenant_settings`, and `sessions` (including `turns_data` JSON blob).
-- [ ] **Unified Relational Storage Strategy (`RelationalSessionStorage`)**: Refactor `BaseSessionStorage` in `src/rachel/core/state.py` to use `RelationalSessionStorage`. Connects to `sqlite:///data/rpg_agent.sqlite3` in Local Standalone Mode (`tenant_id = 'local'`) and Neon PostgreSQL in Multi-Tenant Cloud Mode.
-- [ ] **In-Memory Python LRU Eviction**: Implement Python `dict` key popping (`len > num_states_to_track`) before SQL `UPSERT` execution.
-- [ ] **Bootstrap Key Auto-Seeding (Local Mode)**: Auto-seed the SQLite `tenant_api_keys` table on database initialization with `RACHEL_PROXY_KEY` as a default client key for the `local` tenant.
-
-### Phase 3: Multi-Tenant Identity, Proxy Keys & Envelope Encryption (Cloud Mode / Universal Key Management)
-- [ ] **Stateless JWT SSO Auth Middleware**: Add JWKS-based JWT validation dependency in `src/rachel/auth.py` for Admin Console routes when `MULTI_TENANT_MODE=true`.
-- [ ] **Client Proxy Key Management (Universal)**: Add API endpoints in `src/rachel/routes/system.py` to generate, list, and revoke database-backed client proxy keys (with prefix `sk-local-...` in Local Mode and `sk-tenant-...` in Cloud Mode).
-- [ ] **Proxy Key Validation (Universal)**: Update the `require_proxy_key` authentication dependency in `src/rachel/auth.py` and `completions.py` to validate keys against the `tenant_api_keys` table and bind the resolved `tenant_id` (`local` or cloud tenant UUID) to the request context.
-- [ ] **Envelope Encryption (Universal)**: Implement HKDF-SHA256 key derivation. For cloud mode, derive KEK using `(MasterSecret + tenant_id + SSO_sub)`. For local mode, derive KEK using `(RACHEL_PROXY_KEY + "local" + "local_admin")`. Use the derived KEK to wrap/unwrap the Data Encryption Key (DEK) in memory.
-
-### Phase 4: OpenRouter Resold Token Provisioning & GCP Cloud Run Deployment
+- [ ] **Single-Tenant Desktop Documentation**: Document local double-click installation and macOS Gatekeeper bypass instructions in `README.md`.
 - [ ] **OpenRouter Provisioned Key Client**: Implement OpenRouter Management API integration to request provisioned keys for tenants selecting "OpenRouter (Resold Token)" mode.
 - [ ] **GCP Cloud Run Production Hardening**: Add GCP Secret Manager environment variable injection documentation (`DATABASE_URL`, `ENCRYPTION_MASTER_KEY`).
-- [ ] **Dockerfile Optimization**: Optimize `Dockerfile` for Cloud Run (multi-stage build, non-root user).
+- [ ] **Dockerfile Optimization**: Optimize `Dockerfile` for Cloud Run (multi-stage build, non-root user, bundling `dist/cloud`).
 - [ ] **Manual Database Migration Scripts**: Write `schema_v1.sql` for initial Neon PostgreSQL database provisioning.
 
 ---

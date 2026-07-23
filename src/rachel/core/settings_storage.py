@@ -122,9 +122,18 @@ class FileSettingsStorage(BaseSettingsStorage):
 class RelationalSettingsStorage(BaseSettingsStorage):
     """Relational SQL storage implementation for tenant settings & credentials (SQLite + PostgreSQL)."""
 
-    def __init__(self, tenant_id: str = "local", engine: Any = None, db_url: str | None = None) -> None:
+    def __init__(
+        self,
+        tenant_id: str = "local",
+        sso_sub: str | None = None,
+        engine: Any = None,
+        db_url: str | None = None,
+    ) -> None:
         super().__init__(tenant_id)
+        from rachel.core.crypto import derive_kek
         from rachel.core.db import get_engine, get_sessionmaker, init_db
+        self.sso_sub = sso_sub
+        self.kek = derive_kek(tenant_id=tenant_id, sso_sub=sso_sub)
         self.engine = engine or get_engine(db_url)
         init_db(engine=self.engine)
         self.SessionMaker = get_sessionmaker(self.engine)
@@ -149,22 +158,31 @@ class RelationalSettingsStorage(BaseSettingsStorage):
             session.commit()
 
     def get_credentials(self) -> dict[str, str]:
+        from rachel.core.crypto import decrypt_api_key
         from rachel.core.db import TenantCredential
         with self.SessionMaker() as session:
             rows = session.query(TenantCredential).filter_by(tenant_id=self.tenant_id).all()
-            return {r.provider: r.api_key for r in rows}
+            res = {}
+            for r in rows:
+                try:
+                    res[r.provider] = decrypt_api_key(r.api_key, self.kek)
+                except Exception as exc:
+                    logger.warning("Could not decrypt credential for provider %s: %s", r.provider, exc)
+            return res
 
     def set_credential(self, provider: str, api_key: str) -> None:
         if provider not in DEFAULT_PROVIDER_BASE_URLS:
             raise ValueError(f"Invalid provider: '{provider}'")
+        from rachel.core.crypto import encrypt_api_key
         from rachel.core.db import TenantCredential
+        encrypted_val = encrypt_api_key(api_key.strip(), self.kek)
         with self.SessionMaker() as session:
             cred = session.query(TenantCredential).filter_by(tenant_id=self.tenant_id, provider=provider).first()
             if not cred:
-                cred = TenantCredential(tenant_id=self.tenant_id, provider=provider, api_key=api_key.strip())
+                cred = TenantCredential(tenant_id=self.tenant_id, provider=provider, api_key=encrypted_val)
                 session.add(cred)
             else:
-                cred.api_key = api_key.strip()
+                cred.api_key = encrypted_val
             session.commit()
 
 

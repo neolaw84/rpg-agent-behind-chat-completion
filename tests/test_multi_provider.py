@@ -37,8 +37,8 @@ def test_cors_headers():
 def test_provider_management_endpoints(tmp_path, monkeypatch):
     from rachel.core import settings_storage
     storage = settings_storage.FileSettingsStorage(tenant_id="local", storage_dir=str(tmp_path))
-    monkeypatch.setattr("rachel.routes.system.get_settings_storage", lambda: storage)
-    monkeypatch.setattr("rachel.routes.completions.get_settings_storage", lambda: storage)
+    monkeypatch.setattr("rachel.routes.system.get_settings_storage", lambda *a, **kw: storage)
+    monkeypatch.setattr("rachel.routes.completions.get_settings_storage", lambda *a, **kw: storage)
 
     # List providers
     res = client.get("/v1/providers", headers=AUTH_HEADERS)
